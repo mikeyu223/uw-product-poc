@@ -1,0 +1,11 @@
+backend/target
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/dist
+.git
+**/.DS_Store
+*.log
+.env
+.env.*
+!.env.example
