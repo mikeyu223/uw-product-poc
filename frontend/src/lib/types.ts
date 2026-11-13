@@ -22,6 +22,7 @@ export interface ScoreBreakdown {
   flip_proximity: number;
   wall_conflict: number;
   adverse_flow: number;
+  iv_regime: number;
   structure: number;
   catalyst: number;
 }

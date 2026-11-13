@@ -1,10 +1,10 @@
 use super::catalog::{
-    MAX_ADVERSE_FLOW, MAX_CATALYST, MAX_FLIP_PROXIMITY, MAX_GAMMA_REGIME, MAX_STRUCTURE,
-    MAX_WALL_CONFLICT, TOTAL_MAX, driver_max,
+    MAX_ADVERSE_FLOW, MAX_CATALYST, MAX_FLIP_PROXIMITY, MAX_GAMMA_REGIME, MAX_IV_REGIME,
+    MAX_STRUCTURE, MAX_WALL_CONFLICT, TOTAL_MAX, driver_max,
 };
 use super::curves::{exp_decay_near, log_ratio_cap, log_saturate, sigmoid_proximity};
 use super::{PositionRisk, RiskBucket, RiskDriver, ScoreBreakdown};
-use crate::uw::{FlowAlert, GexLevels, GreekExposure, TickerInfo};
+use crate::uw::{FlowAlert, GexLevels, GreekExposure, InterpolatedIvPoint, IvRankPoint, TickerInfo};
 use chrono::{NaiveDate, Utc};
 
 /// User options position (book side) — strikes/qty are portfolio truth;
@@ -31,10 +31,12 @@ pub struct MarketContext {
     pub greek: Option<GreekExposure>,
     pub flow: Vec<FlowAlert>,
     pub info: Option<TickerInfo>,
+    pub iv_rank: Option<IvRankPoint>,
+    pub interpolated_iv: Option<InterpolatedIvPoint>,
 }
 
 const METHODOLOGY: &str = "Hand-tuned 0–100 aggregate from mathematical proximity-to-harm drivers \
-(no ML). Family caps: GEX 26, flip 20, walls 16, flow 20, structure 10, catalyst 8. \
+(no ML). Family caps: GEX 20, flip 18, walls 14, flow 15, IV 13, structure 8, catalyst 12. \
 Each driver shows as contribution/max (e.g. 4/20). Non-linear curves asymptote to caps.";
 
 pub fn score_position(pos: &PositionInput, mkt: &MarketContext) -> PositionRisk {
@@ -50,6 +52,7 @@ pub fn score_position(pos: &PositionInput, mkt: &MarketContext) -> PositionRisk 
     breakdown.wall_conflict =
         score_wall_conflict(pos, spot, is_call, is_long, &mkt.gex, &mut drivers);
     breakdown.adverse_flow = score_adverse_flow(pos, is_call, is_long, &mkt.flow, &mut drivers);
+    breakdown.iv_regime = score_iv_regime(pos, is_long, mkt, &mut drivers);
     breakdown.structure = score_structure(pos, spot, is_call, &mut drivers);
     breakdown.catalyst = score_catalyst(mkt.info.as_ref(), &mut drivers);
 
@@ -57,6 +60,7 @@ pub fn score_position(pos: &PositionInput, mkt: &MarketContext) -> PositionRisk 
     breakdown.flip_proximity = round1(breakdown.flip_proximity);
     breakdown.wall_conflict = round1(breakdown.wall_conflict);
     breakdown.adverse_flow = round1(breakdown.adverse_flow);
+    breakdown.iv_regime = round1(breakdown.iv_regime);
     breakdown.structure = round1(breakdown.structure);
     breakdown.catalyst = round1(breakdown.catalyst);
 
@@ -132,7 +136,7 @@ fn score_gamma_regime(mkt: &MarketContext, drivers: &mut Vec<RiskDriver>) -> f64
         );
         pts
     } else {
-        let pts = (2.0 + log_saturate(net, 5_000_000.0, 4.0)).min(6.0);
+        let pts = (2.0 + log_saturate(net, 5_000_000.0, 3.0)).min(5.0);
         push(
             drivers,
             "pos_gex_regime",
@@ -140,7 +144,7 @@ fn score_gamma_regime(mkt: &MarketContext, drivers: &mut Vec<RiskDriver>) -> f64
             pts,
             "gamma_regime",
             format!(
-                "Metric: net GEX={net:.0} > 0. Residual dampening-regime points {pts:.1}/6 (pin/complacency)."
+                "Metric: net GEX={net:.0} > 0. Residual dampening-regime points {pts:.1}/5 (pin/complacency)."
             ),
         );
         pts
@@ -196,7 +200,7 @@ fn score_wall_conflict(
         if let Some(cw) = call_wall {
             let dist = ((pos.strike - cw).abs() / spot.max(1.0)) * 100.0;
             if dist <= 3.0 || (pos.strike >= cw && (pos.strike - cw) / spot <= 0.04) {
-                let add = exp_decay_near(dist, 0.7, 14.0);
+                let add = exp_decay_near(dist, 0.7, 12.0);
                 if add >= 1.0 {
                     pts += add;
                     push(
@@ -206,7 +210,7 @@ fn score_wall_conflict(
                         add,
                         "wall_conflict",
                         format!(
-                            "Metric: |strike−call_wall|/spot = {dist:.2}% (strike {strike:.0}, wall {cw:.0}). Exp-decay → {add:.1}/14.",
+                            "Metric: |strike−call_wall|/spot = {dist:.2}% (strike {strike:.0}, wall {cw:.0}). Exp-decay → {add:.1}/12.",
                             strike = pos.strike
                         ),
                     );
@@ -219,7 +223,7 @@ fn score_wall_conflict(
         if let Some(pw) = put_wall {
             let dist = ((pos.strike - pw).abs() / spot.max(1.0)) * 100.0;
             if dist <= 3.0 {
-                let add = exp_decay_near(dist, 0.7, 12.0);
+                let add = exp_decay_near(dist, 0.7, 10.0);
                 if add >= 1.0 {
                     pts += add;
                     push(
@@ -229,7 +233,7 @@ fn score_wall_conflict(
                         add,
                         "wall_conflict",
                         format!(
-                            "Metric: |strike−put_wall|/spot = {dist:.2}% (strike {strike:.0}, wall {pw:.0}). Exp-decay → {add:.1}/12.",
+                            "Metric: |strike−put_wall|/spot = {dist:.2}% (strike {strike:.0}, wall {pw:.0}). Exp-decay → {add:.1}/10.",
                             strike = pos.strike
                         ),
                     );
@@ -242,7 +246,7 @@ fn score_wall_conflict(
         if let Some(m) = magnet {
             let dist = ((pos.strike - m).abs() / spot.max(1.0)) * 100.0;
             if dist <= 2.0 {
-                let add = exp_decay_near(dist, 0.5, 10.0);
+                let add = exp_decay_near(dist, 0.5, 8.0);
                 if add >= 1.0 {
                     pts += add;
                     push(
@@ -252,7 +256,7 @@ fn score_wall_conflict(
                         add,
                         "wall_conflict",
                         format!(
-                            "Metric: |strike−magnet|/spot = {dist:.2}% (strike {strike:.0}, magnet {m:.0}). Exp-decay → {add:.1}/10.",
+                            "Metric: |strike−magnet|/spot = {dist:.2}% (strike {strike:.0}, magnet {m:.0}). Exp-decay → {add:.1}/8.",
                             strike = pos.strike
                         ),
                     );
@@ -379,7 +383,7 @@ fn score_structure(
         (spot - pos.strike) / spot
     };
 
-    let dte_pts = sigmoid_proximity(dte, 8.0, 0.35, 7.0);
+    let dte_pts = sigmoid_proximity(dte, 8.0, 0.35, 6.0);
     let mut pts = dte_pts;
 
     if dte_pts >= 2.0 {
@@ -393,13 +397,13 @@ fn score_structure(
             },
             dte_pts,
             "structure",
-            format!("Metric: DTE={dte:.0}. Sigmoid(mid=8d) → {dte_pts:.1}/7. Gamma/charm rise into expiry."),
+            format!("Metric: DTE={dte:.0}. Sigmoid(mid=8d) → {dte_pts:.1}/6. Gamma/charm rise into expiry."),
         );
     }
 
     if moneyness > 0.0 {
-        let otm_pts = log_saturate(moneyness * 100.0, 6.0, 3.0);
-        if otm_pts >= 1.0 {
+        let otm_pts = log_saturate(moneyness * 100.0, 6.0, 2.0);
+        if otm_pts >= 0.8 {
             pts += otm_pts;
             push(
                 drivers,
@@ -408,7 +412,7 @@ fn score_structure(
                 otm_pts,
                 "structure",
                 format!(
-                    "Metric: OTM={pct:.1}% (strike {strike:.0}, spot {spot:.2}). Log → {otm_pts:.1}/3.",
+                    "Metric: OTM={pct:.1}% (strike {strike:.0}, spot {spot:.2}). Log → {otm_pts:.1}/2.",
                     strike = pos.strike,
                     pct = moneyness * 100.0
                 ),
@@ -433,6 +437,105 @@ fn score_structure(
     }
 
     pts.min(MAX_STRUCTURE)
+}
+
+fn score_iv_regime(
+    pos: &PositionInput,
+    is_long: bool,
+    mkt: &MarketContext,
+    drivers: &mut Vec<RiskDriver>,
+) -> f64 {
+    let iv_rank = mkt.iv_rank.as_ref().and_then(|r| r.iv_rank_pct());
+    let iv_vol = mkt.iv_rank.as_ref().and_then(|r| r.volatility_f64());
+    let iv30_pct = mkt.interpolated_iv.as_ref().and_then(|r| r.percentile_pct());
+    let iv30_vol = mkt.interpolated_iv.as_ref().and_then(|r| r.volatility_f64());
+
+    // Prefer 1y IV Rank; fall back to 30d interpolated IV percentile.
+    let Some(rank) = iv_rank.or(iv30_pct) else {
+        return 0.0;
+    };
+
+    let days_earn = mkt
+        .info
+        .as_ref()
+        .and_then(|i| i.next_earnings_date.as_ref())
+        .and_then(|d| days_until_date(d));
+
+    let near_earnings = matches!(days_earn, Some(d) if (0..=7).contains(&d));
+
+    // Blend in 30d percentile when both exist (mild lift toward the hotter reading).
+    let effective = match (iv_rank, iv30_pct) {
+        (Some(a), Some(b)) => a.max(b) * 0.7 + a.min(b) * 0.3,
+        _ => rank,
+    };
+
+    let (mut pts, code, label, harm_side) = if is_long {
+        // Long premium: high IVR = crush / overpaid vega hazard.
+        // Distance-from-safe uses (100 - IVR) so high IVR → low distance → high points.
+        let dist_from_cheap = (100.0 - effective).max(0.0);
+        let pts = sigmoid_proximity(dist_from_cheap, 35.0, 0.08, MAX_IV_REGIME);
+        (
+            pts,
+            "iv_crush_long",
+            "High IV Rank crush risk (long premium)",
+            "long",
+        )
+    } else {
+        // Short premium: low IVR = expansion hazard (selling cheap vol).
+        let pts = sigmoid_proximity(effective, 35.0, 0.08, MAX_IV_REGIME);
+        (
+            pts,
+            "iv_expansion_short",
+            "Low IV Rank expansion risk (short premium)",
+            "short",
+        )
+    };
+
+    // Interaction: long + earnings ≤7d + rich IV → crush trap boost.
+    let mut boost_note = String::new();
+    if is_long && near_earnings && effective >= 80.0 {
+        let boosted = (pts * 1.25).min(MAX_IV_REGIME);
+        if boosted > pts {
+            boost_note = format!(
+                " Earnings≤7d + IVR≥80% boost ×1.25 → {boosted:.1}/{max:.0}.",
+                max = MAX_IV_REGIME
+            );
+            pts = boosted;
+        }
+    }
+
+    if pts < 1.0 {
+        return 0.0;
+    }
+
+    let fmt_iv = |v: f64| -> String {
+        // UW may send 0.63 or 63.0 depending on endpoint.
+        if v <= 3.0 {
+            format!("{:.1}%", v * 100.0)
+        } else {
+            format!("{v:.1}%")
+        }
+    };
+    let vol_bits = match (iv_vol.or(iv30_vol), iv30_pct) {
+        (Some(v), Some(p30)) => format!(" IV≈{} · 30d IV pctile={p30:.1}%.", fmt_iv(v)),
+        (Some(v), None) => format!(" IV≈{}.", fmt_iv(v)),
+        (None, Some(p30)) => format!(" 30d IV pctile={p30:.1}%."),
+        _ => String::new(),
+    };
+
+    push(
+        drivers,
+        code,
+        label,
+        pts,
+        "iv_regime",
+        format!(
+            "Metric: IV Rank={effective:.1}% ({harm_side} {side}). Position-aware sigmoid → {pts:.1}/{max:.0}.{vol_bits}{boost_note}",
+            side = pos.side,
+            max = MAX_IV_REGIME
+        ),
+    );
+    pts.min(MAX_IV_REGIME)
 }
 
 fn score_catalyst(info: Option<&TickerInfo>, drivers: &mut Vec<RiskDriver>) -> f64 {

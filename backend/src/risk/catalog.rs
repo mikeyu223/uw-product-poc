@@ -1,20 +1,23 @@
 //! Complete catalog of position-harm drivers.
 //!
 //! Every driver is a **mathematical proximity-to-harm** signal — not a subjective
-//! vibe score. Hand-tuned family budgets sum to 100. Flip proximity is capped at
-//! **20** by design.
+//! vibe score. Hand-tuned family budgets sum to 100. Flip proximity remains a
+//! major microstructure family; IV regime captures crush / expansion hazard
+//! that GEX alone misses.
 //!
 //! The UI should show each active driver as `contribution / max_points` (e.g. 4/20).
 
 use serde::Serialize;
 
 /// Family point budgets (hand-tuned). Must sum to 100.
-pub const MAX_GAMMA_REGIME: f64 = 26.0;
-pub const MAX_FLIP_PROXIMITY: f64 = 20.0;
-pub const MAX_WALL_CONFLICT: f64 = 16.0;
-pub const MAX_ADVERSE_FLOW: f64 = 20.0;
-pub const MAX_STRUCTURE: f64 = 10.0;
-pub const MAX_CATALYST: f64 = 8.0;
+/// Rebalanced to carve an IV/vega regime family out of GEX + flow, and lift catalyst.
+pub const MAX_GAMMA_REGIME: f64 = 20.0;
+pub const MAX_FLIP_PROXIMITY: f64 = 18.0;
+pub const MAX_WALL_CONFLICT: f64 = 14.0;
+pub const MAX_ADVERSE_FLOW: f64 = 15.0;
+pub const MAX_IV_REGIME: f64 = 13.0;
+pub const MAX_STRUCTURE: f64 = 8.0;
+pub const MAX_CATALYST: f64 = 12.0;
 
 pub const TOTAL_MAX: f64 = 100.0;
 
@@ -72,6 +75,12 @@ pub fn family_catalog() -> Vec<FamilySpec> {
             why: "Aggressive premium flowing against your side (log-scaled $).",
         },
         FamilySpec {
+            family: "iv_regime",
+            label: "IV / vega regime",
+            max_points: MAX_IV_REGIME,
+            why: "IV Rank (and 30d IV percentile): crush risk for long premium, expansion risk for short premium.",
+        },
+        FamilySpec {
             family: "structure",
             label: "Structure (DTE / moneyness)",
             max_points: MAX_STRUCTURE,
@@ -96,7 +105,7 @@ pub fn driver_catalog() -> Vec<DriverSpec> {
             label: "Negative dealer gamma (amplifying)",
             max_points: MAX_GAMMA_REGIME,
             metric: "|net_dealer_gex| when net_gex < 0",
-            curve: "log_ratio_cap(|net|, ref=$2M, cap=26)",
+            curve: "log_ratio_cap(|net|, ref=$2M, cap=20)",
             harm: "Dealers hedge with the move — vol expansion / stop-run risk vs directional options.",
             applies_to: "All positions; worse for long premium / fragile structures",
         },
@@ -104,73 +113,94 @@ pub fn driver_catalog() -> Vec<DriverSpec> {
             code: "pos_gex_regime",
             family: "gamma_regime",
             label: "Positive dealer gamma (dampening)",
-            max_points: 6.0,
+            max_points: 5.0,
             metric: "net_dealer_gex when net_gex > 0",
-            curve: "2 + log_saturate(net, scale=$5M, cap=4) ≤ 6",
+            curve: "2 + log_saturate(net, scale=$5M, cap=3) ≤ 5",
             harm: "Lower path risk, but residual pin/complacency risk near magnets.",
             applies_to: "All positions (small residual only)",
         },
-        // --- flip_proximity (hand-tuned importance: 20) ---
+        // --- flip_proximity ---
         DriverSpec {
             code: "zero_gamma_flip",
             family: "flip_proximity",
             label: "Near dealer zero-gamma flip",
             max_points: MAX_FLIP_PROXIMITY,
             metric: "|spot - gamma_flip| / spot * 100",
-            curve: "sigmoid_proximity(dist%, mid=0.38%, k=8.5, cap=20) — tight; ≤0.15%≈max, 0.5%≈5–6",
-            harm: "Crossing the flip flips hedging from dampening ↔ amplifying — structural regime risk.",
-            applies_to: "Positions truly near the flip (not every liquid name by default)",
+            curve: "sigmoid_proximity(dist%, mid=0.38%, k=8.5, cap=18) — tight; ≤0.15%≈max, 0.5%≈5–6",
+            harm: "Crossing the flip can flip dealer hedging from dampening to amplifying (or vice versa).",
+            applies_to: "All",
         },
         // --- wall_conflict ---
         DriverSpec {
             code: "call_wall_headwind",
             family: "wall_conflict",
             label: "Call wall headwind",
-            max_points: 14.0,
-            metric: "|strike - call_wall| / spot * 100",
-            curve: "exp_decay_near(dist%, half_life=0.7%, cap=14); family cap 16",
-            harm: "Dealer call wall acts as resistance — headwind for long calls / fuel for short calls into wall.",
+            max_points: 12.0,
+            metric: "|strike - call_wall| / spot",
+            curve: "exp_decay_near(dist%, half_life=0.7%, cap=12); family cap 14",
+            harm: "Dealer call wall can pin/cap upside into your long calls.",
             applies_to: "Long calls (primary); shorts near wall via magnet driver",
         },
         DriverSpec {
             code: "put_wall_magnet",
             family: "wall_conflict",
             label: "Put wall magnet / support",
-            max_points: 12.0,
-            metric: "|strike - put_wall| / spot * 100",
-            curve: "exp_decay_near(dist%, half_life=0.7%, cap=12); family cap 16",
-            harm: "Put wall support can stall downside needed for long puts.",
-            applies_to: "Long puts",
+            max_points: 10.0,
+            metric: "|strike - put_wall| / spot",
+            curve: "exp_decay_near(dist%, half_life=0.7%, cap=10); family cap 14",
+            harm: "Put wall can magnetize spot or fail as support — path risk vs puts/calls.",
+            applies_to: "Puts and structures near put wall",
         },
         DriverSpec {
-            code: "gamma_magnet_pin",
+            code: "gamma_magnet_pull",
             family: "wall_conflict",
-            label: "Gamma magnet pin risk",
-            max_points: 10.0,
-            metric: "|strike - gamma_magnet| / spot * 100",
-            curve: "exp_decay_near(dist%, half_life=0.5%, cap=10); family cap 16",
-            harm: "Price pins into the magnet — assignment / max-pain style risk for short options.",
-            applies_to: "Short options",
+            label: "Gamma magnet pull",
+            max_points: 8.0,
+            metric: "|spot - gamma_magnet| / spot",
+            curve: "exp_decay_near(dist%, half_life=0.5%, cap=8); family cap 14",
+            harm: "Spot may pin toward magnet — bad for lottery OTM, mixed for shorts.",
+            applies_to: "Near-magnet structures",
         },
         // --- adverse_flow ---
         DriverSpec {
             code: "adverse_flow",
             family: "adverse_flow",
-            label: "Adverse options flow vs position",
+            label: "Adverse options flow",
             max_points: MAX_ADVERSE_FLOW,
             metric: "net aggressive ask-side premium against position side ($)",
-            curve: "log_saturate(net_adverse, scale=$250k, cap=20)",
+            curve: "log_saturate(net_adverse, scale=$250k, cap=15)",
             harm: "Tape leaning against you (puts vs long calls, calls vs long puts, etc.).",
             applies_to: "All positions with opposing aggressive flow",
+        },
+        // --- iv_regime ---
+        DriverSpec {
+            code: "iv_crush_long",
+            family: "iv_regime",
+            label: "High IV Rank crush risk (long premium)",
+            max_points: MAX_IV_REGIME,
+            metric: "IV Rank % (1y) + optional 30d IV percentile; side=long",
+            curve: "sigmoid_proximity(100-iv_rank, mid=35, k=0.08, cap=13); earnings≤7d boost ×1.25",
+            harm: "Buying rich vol — peak premium into event; IV crush can dominate even if spot cooperates.",
+            applies_to: "Long calls/puts (debit premium)",
+        },
+        DriverSpec {
+            code: "iv_expansion_short",
+            family: "iv_regime",
+            label: "Low IV Rank expansion risk (short premium)",
+            max_points: MAX_IV_REGIME,
+            metric: "IV Rank % (1y); side=short",
+            curve: "sigmoid_proximity(iv_rank, mid=35, k=0.08, cap=13) — high when IVR is low",
+            harm: "Shorting cheap vol — room for IV expansion / vol-of-vol to blow out short vega.",
+            applies_to: "Short calls/puts (credit premium)",
         },
         // --- structure ---
         DriverSpec {
             code: "short_dte",
             family: "structure",
             label: "Short-dated structure risk",
-            max_points: 7.0,
+            max_points: 6.0,
             metric: "calendar days to expiry",
-            curve: "sigmoid_proximity(dte, mid=8d, k=0.35, cap=7)",
+            curve: "sigmoid_proximity(dte, mid=8d, k=0.35, cap=6)",
             harm: "Gamma/charm explode into expiry — small spot moves dominate P&L.",
             applies_to: "Any short-dated option",
         },
@@ -178,9 +208,9 @@ pub fn driver_catalog() -> Vec<DriverSpec> {
             code: "otm_lottery",
             family: "structure",
             label: "Out-of-the-money structure",
-            max_points: 3.0,
+            max_points: 2.0,
             metric: "OTM % = |strike-spot|/spot for long direction",
-            curve: "log_saturate(otm% * 100, scale=6, cap=3)",
+            curve: "log_saturate(otm% * 100, scale=6, cap=2)",
             harm: "Needs a larger move; walls/flip matter more; higher lottery wipe risk.",
             applies_to: "OTM longs",
         },
@@ -188,7 +218,7 @@ pub fn driver_catalog() -> Vec<DriverSpec> {
             code: "high_gamma_cluster",
             family: "structure",
             label: "High gamma into short DTE",
-            max_points: 2.0,
+            max_points: 1.5,
             metric: "|position_gamma| and dte ≤ 10",
             curve: "flat +1.5 when gamma≥0.02 and dte≤10 (within structure family)",
             harm: "P&L curvature spikes — microstructure noise becomes position-threatening faster.",
@@ -201,16 +231,16 @@ pub fn driver_catalog() -> Vec<DriverSpec> {
             label: "Earnings / binary catalyst",
             max_points: MAX_CATALYST,
             metric: "days until next_earnings_date",
-            curve: "sigmoid_proximity(days, mid=7d, k=0.4, cap=8)",
+            curve: "sigmoid_proximity(days, mid=7d, k=0.4, cap=12)",
             harm: "Gap/IV crush can move spot through your strike faster than continuous hedging implies.",
             applies_to: "Positions held into earnings window",
         },
-        // --- defined / future mathematical drivers (0 until wired) ---
+        // --- reserved ---
         DriverSpec {
             code: "max_loss_zone",
             family: "wall_conflict",
             label: "Proximity to structural max-loss zone",
-            max_points: 0.0, // reserved — not scored until geometry wired
+            max_points: 0.0,
             metric: "distance of spot to strike-path max-loss boundary",
             curve: "planned: sigmoid_proximity to breakeven/max-loss level",
             harm: "Spot approaching the region where the option is structurally worthless / max loss.",
@@ -220,7 +250,7 @@ pub fn driver_catalog() -> Vec<DriverSpec> {
             code: "flow_vs_14d_baseline",
             family: "adverse_flow",
             label: "Flow divergence vs 14-day baseline",
-            max_points: 0.0, // reserved
+            max_points: 0.0,
             metric: "today adverse premium / 14d rolling mean",
             curve: "planned: log_saturate(z-score or ratio)",
             harm: "Unusual against-you flow relative to that ticker's own history (noise filter).",
@@ -235,6 +265,7 @@ pub fn family_max(family: &str) -> f64 {
         "flip_proximity" => MAX_FLIP_PROXIMITY,
         "wall_conflict" => MAX_WALL_CONFLICT,
         "adverse_flow" => MAX_ADVERSE_FLOW,
+        "iv_regime" => MAX_IV_REGIME,
         "structure" => MAX_STRUCTURE,
         "catalyst" => MAX_CATALYST,
         _ => 0.0,

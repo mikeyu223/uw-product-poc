@@ -14,12 +14,13 @@ import {
 import { Sidebar } from "./Sidebar";
 
 const FALLBACK_FAMILIES: Array<{ family: string; label: string; max_points: number }> = [
-  { family: "gamma_regime", label: "Dealer GEX regime", max_points: 26 },
-  { family: "flip_proximity", label: "Zero-gamma flip proximity", max_points: 20 },
-  { family: "wall_conflict", label: "Call/put wall conflict", max_points: 16 },
-  { family: "adverse_flow", label: "Adverse options flow", max_points: 20 },
-  { family: "structure", label: "Structure (DTE / moneyness)", max_points: 10 },
-  { family: "catalyst", label: "Earnings / catalyst", max_points: 8 },
+  { family: "gamma_regime", label: "Dealer GEX regime", max_points: 20 },
+  { family: "flip_proximity", label: "Zero-gamma flip proximity", max_points: 18 },
+  { family: "wall_conflict", label: "Call/put wall conflict", max_points: 14 },
+  { family: "adverse_flow", label: "Adverse options flow", max_points: 15 },
+  { family: "iv_regime", label: "IV / vega regime", max_points: 13 },
+  { family: "structure", label: "Structure (DTE / moneyness)", max_points: 8 },
+  { family: "catalyst", label: "Earnings / catalyst", max_points: 12 },
 ];
 
 type DetailTab = "drivers" | "breakdown" | "probe";
@@ -423,10 +424,15 @@ export function Dashboard() {
               <div className="space-y-3">
                 <p className="text-[14px] text-[var(--text-muted)]">
                   {summary?.methodology ??
-                    "GEX (26) + flip (20) + walls (16) + flow (20) + structure (10) + earnings (8)."}
+                    "GEX 20 + flip 18 + walls 14 + flow 15 + IV 13 + structure 8 + earnings 12."}
                 </p>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {(methodology?.families ??
+                  {(
+                    methodology?.families?.map((m) => ({
+                      family: m.family,
+                      label: m.label,
+                      max_points: m.max_points,
+                    })) ??
                     methodology?.mix?.map((m) => ({
                       family: m.family,
                       label: m.title,
@@ -438,9 +444,7 @@ export function Dashboard() {
                       key={m.family}
                       className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-white px-4 py-3"
                     >
-                      <span className="text-[14px] font-medium text-[var(--ink)]">
-                        {"label" in m ? m.label : m.family}
-                      </span>
+                      <span className="text-[14px] font-medium text-[var(--ink)]">{m.label}</span>
                       <span className="mono text-[13px] font-semibold text-[var(--accent)]">
                         max {m.max_points}
                       </span>
@@ -952,11 +956,12 @@ function MiniStat({
 
 function defaultMix() {
   return [
-    { family: "gamma_regime", label: "Dealer GEX", max_points: 26 },
-    { family: "flip_proximity", label: "Flip proximity", max_points: 20 },
-    { family: "wall_conflict", label: "Wall conflict", max_points: 16 },
-    { family: "adverse_flow", label: "Adverse flow", max_points: 20 },
-    { family: "structure", label: "Structure", max_points: 10 },
-    { family: "catalyst", label: "Earnings", max_points: 8 },
+    { family: "gamma_regime", label: "Dealer GEX", max_points: 20 },
+    { family: "flip_proximity", label: "Flip proximity", max_points: 18 },
+    { family: "wall_conflict", label: "Wall conflict", max_points: 14 },
+    { family: "adverse_flow", label: "Adverse flow", max_points: 15 },
+    { family: "iv_regime", label: "IV / vega", max_points: 13 },
+    { family: "structure", label: "Structure", max_points: 8 },
+    { family: "catalyst", label: "Earnings", max_points: 12 },
   ];
 }

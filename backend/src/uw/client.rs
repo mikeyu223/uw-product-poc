@@ -1,7 +1,7 @@
 use super::error::{UwError, UwResult};
 use super::models::{
-    FlowAlert, GexLevels, GexSource, GreekExposure, MarketTidePoint, StockState, TickerInfo,
-    UwEnvelope,
+    FlowAlert, GexLevels, GexSource, GreekExposure, InterpolatedIvPoint, IvRankPoint,
+    MarketTidePoint, StockState, TickerInfo, UwEnvelope,
 };
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
@@ -93,6 +93,37 @@ impl UwClient {
         let env: UwEnvelope<Vec<MarketTidePoint>> =
             self.get_json("/api/market/market-tide", &[]).await?;
         Ok(env.data)
+    }
+
+    /// `GET /api/stock/{ticker}/iv-rank` — rows oldest→newest; latest is last.
+    pub async fn iv_rank(&self, ticker: &str, timespan: &str) -> UwResult<Vec<IvRankPoint>> {
+        let path = format!("/api/stock/{}/iv-rank", normalize_ticker(ticker));
+        let env: UwEnvelope<Vec<IvRankPoint>> = self
+            .get_json(&path, &[("timespan", timespan)])
+            .await?;
+        Ok(env.data)
+    }
+
+    /// Latest IV-rank row (1y window by default).
+    pub async fn latest_iv_rank(&self, ticker: &str) -> UwResult<Option<IvRankPoint>> {
+        Ok(self.iv_rank(ticker, "1y").await?.into_iter().next_back())
+    }
+
+    /// `GET /api/stock/{ticker}/interpolated-iv`
+    pub async fn interpolated_iv(&self, ticker: &str) -> UwResult<Vec<InterpolatedIvPoint>> {
+        let path = format!("/api/stock/{}/interpolated-iv", normalize_ticker(ticker));
+        let env: UwEnvelope<Vec<InterpolatedIvPoint>> = self.get_json(&path, &[]).await?;
+        Ok(env.data)
+    }
+
+    /// Prefer ~30-day interpolated IV row when present.
+    pub async fn interpolated_iv_near_30d(&self, ticker: &str) -> UwResult<Option<InterpolatedIvPoint>> {
+        let rows = self.interpolated_iv(ticker).await?;
+        let best = rows
+            .iter()
+            .min_by_key(|r| (r.days.unwrap_or(999) - 30).abs())
+            .cloned();
+        Ok(best)
     }
 
     /// Lightweight connectivity check: fetch ticker info + GEX levels.

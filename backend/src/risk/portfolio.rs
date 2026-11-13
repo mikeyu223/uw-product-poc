@@ -145,12 +145,14 @@ async fn score_one(uw: &UwClient, pos: &PositionInput) -> Result<ScoredPosition,
     let ticker = &pos.ticker;
 
     // Parallel UW calls for this ticker (was sequential before).
-    let (state_r, gex_r, greek_r, flow_r, info_r) = tokio::join!(
+    let (state_r, gex_r, greek_r, flow_r, info_r, iv_r, iv30_r) = tokio::join!(
         uw.stock_state(ticker),
         uw.gex_levels(ticker, GexSource::Vol),
         uw.latest_greek_exposure(ticker),
         uw.flow_alerts(ticker, 40),
         uw.ticker_info(ticker),
+        uw.latest_iv_rank(ticker),
+        uw.interpolated_iv_near_30d(ticker),
     );
 
     let state = state_r?;
@@ -165,6 +167,8 @@ async fn score_one(uw: &UwClient, pos: &PositionInput) -> Result<ScoredPosition,
     let greek = greek_r?;
     let flow = flow_r.unwrap_or_default();
     let info = info_r.ok();
+    let iv_rank = iv_r.ok().flatten();
+    let interpolated_iv = iv30_r.ok().flatten();
 
     let mkt = MarketContext {
         spot,
@@ -172,6 +176,8 @@ async fn score_one(uw: &UwClient, pos: &PositionInput) -> Result<ScoredPosition,
         greek: greek.clone(),
         flow,
         info,
+        iv_rank,
+        interpolated_iv,
     };
 
     let risk = score_position(pos, &mkt);

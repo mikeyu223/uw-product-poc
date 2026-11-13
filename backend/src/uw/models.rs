@@ -174,3 +174,60 @@ pub struct MarketTidePoint {
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
+
+// ---------------------------------------------------------------------------
+// IV Rank — GET /api/stock/{ticker}/iv-rank
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct IvRankPoint {
+    pub date: Option<String>,
+    pub close: Option<String>,
+    pub volatility: Option<String>,
+    pub iv_rank_1y: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+impl IvRankPoint {
+    /// Normalize IV rank to 0–100 (UW may send 0–1 or 0–100 strings).
+    pub fn iv_rank_pct(&self) -> Option<f64> {
+        let raw: f64 = self.iv_rank_1y.as_ref()?.parse().ok()?;
+        if raw <= 1.0 {
+            Some(raw * 100.0)
+        } else {
+            Some(raw.clamp(0.0, 100.0))
+        }
+    }
+
+    pub fn volatility_f64(&self) -> Option<f64> {
+        self.volatility.as_ref()?.parse().ok()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Interpolated IV — GET /api/stock/{ticker}/interpolated-iv
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InterpolatedIvPoint {
+    pub date: Option<String>,
+    pub days: Option<i64>,
+    pub implied_move_perc: Option<String>,
+    pub percentile: Option<String>,
+    pub volatility: Option<String>,
+}
+
+impl InterpolatedIvPoint {
+    pub fn percentile_pct(&self) -> Option<f64> {
+        let raw: f64 = self.percentile.as_ref()?.parse().ok()?;
+        if raw <= 1.0 {
+            Some(raw * 100.0)
+        } else {
+            Some(raw.clamp(0.0, 100.0))
+        }
+    }
+
+    pub fn volatility_f64(&self) -> Option<f64> {
+        self.volatility.as_ref()?.parse().ok()
+    }
+}

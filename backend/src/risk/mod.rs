@@ -11,7 +11,7 @@ mod portfolio;
 
 pub use catalog::{
     DriverSpec, FamilySpec, MAX_ADVERSE_FLOW, MAX_CATALYST, MAX_FLIP_PROXIMITY, MAX_GAMMA_REGIME,
-    MAX_STRUCTURE, MAX_WALL_CONFLICT, TOTAL_MAX, driver_catalog, family_catalog,
+    MAX_IV_REGIME, MAX_STRUCTURE, MAX_WALL_CONFLICT, TOTAL_MAX, driver_catalog, family_catalog,
 };
 pub use engine::{MarketContext, PositionInput, score_position};
 pub use portfolio::{ScoredPosition, sample_book, score_book};
@@ -89,6 +89,7 @@ pub struct ScoreBreakdown {
     pub flip_proximity: f64,
     pub wall_conflict: f64,
     pub adverse_flow: f64,
+    pub iv_regime: f64,
     pub structure: f64,
     pub catalyst: f64,
 }
@@ -99,11 +100,12 @@ impl ScoreBreakdown {
             + self.flip_proximity
             + self.wall_conflict
             + self.adverse_flow
+            + self.iv_regime
             + self.structure
             + self.catalyst
     }
 
-    /// Family ledger for UI: always all six rows with points/max.
+    /// Family ledger for UI: always all rows with points/max.
     pub fn family_scores(&self) -> Vec<FamilyScore> {
         vec![
             FamilyScore {
@@ -129,6 +131,12 @@ impl ScoreBreakdown {
                 label: "Adverse options flow".into(),
                 points: round1(self.adverse_flow),
                 max_points: family_max("adverse_flow"),
+            },
+            FamilyScore {
+                family: "iv_regime".into(),
+                label: "IV / vega regime".into(),
+                points: round1(self.iv_regime),
+                max_points: family_max("iv_regime"),
             },
             FamilyScore {
                 family: "structure".into(),
