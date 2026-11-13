@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { fetchBook, fetchHealth, fetchMethodology, fetchProbe, type CacheMeta } from "@/lib/api";
 import type { FamilyScore, Methodology, PortfolioSummary, Position, ProbeResponse } from "@/lib/types";
