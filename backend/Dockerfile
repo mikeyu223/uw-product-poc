@@ -1,5 +1,5 @@
 # Multi-stage build for Risk Watcher API (Unusual Whales key stays in runtime env).
-FROM rust:1.85-bookworm AS builder
+FROM rust:1-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src

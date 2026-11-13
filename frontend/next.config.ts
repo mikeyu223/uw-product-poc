@@ -1,13 +1,20 @@
 import type { NextConfig } from "next";
 
-/** Server-only backend origin for same-origin proxy (keeps UW key off the client). */
-const backendUrl = (process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "").replace(
-  /\/$/,
-  "",
-);
+/**
+ * On Vercel Services, public routing lives in root `vercel.json` rewrites
+ * (browser → `/api/*` and `/health` → `backend` service).
+ *
+ * `BACKEND_URL` is injected via a service binding for server-side use only
+ * (Route Handlers / Server Components). Do not set it yourself on Vercel.
+ *
+ * These Next rewrites are a local/dev fallback when you point FRONTEND at a
+ * separately running Axum process via BACKEND_URL or NEXT_PUBLIC_API_URL.
+ */
+const backendUrl = (process.env.BACKEND_URL ?? "").replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
   async rewrites() {
+    // Prefer same-origin + vercel.json when no explicit backend URL is set.
     if (!backendUrl) return [];
     return [
       { source: "/health", destination: `${backendUrl}/health` },

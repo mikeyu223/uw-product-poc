@@ -1,13 +1,17 @@
 import type { Methodology, PortfolioSummary, Position, ProbeResponse } from "./types";
 
 /**
- * Browser calls same-origin paths in production (Next rewrites → Rust backend).
- * Locally, hit the Axum server directly unless NEXT_PUBLIC_API_URL is set.
+ * Browser always uses same-origin paths (`/api/v1/...`, `/health`).
+ * - Vercel: root `vercel.json` rewrites those to the internal `backend` service.
+ * - Local `vercel dev`: same rewrites + injected `BACKEND_URL` binding.
+ * - Local `next dev` + `cargo run`: set NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
+ *   OR set BACKEND_URL and rely on next.config rewrites with empty API_BASE.
+ *
+ * Server-side code (Route Handlers only) may call `process.env.BACKEND_URL`
+ * from the frontend→backend service binding. Never expose the UW API key
+ * to the client.
  */
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ??
-  (process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:8080");
-
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export interface CacheMeta {
   hit: boolean;
@@ -24,14 +28,28 @@ export interface BookResponse {
   note?: string;
 }
 
+function joinUrl(base: string, path: string): string {
+  if (!base) return path;
+  return `${base.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(joinUrl(API_BASE, path), {
     cache: "no-store",
   });
   if (!res.ok) {
     throw new Error(`${path} failed (${res.status})`);
   }
   return res.json() as Promise<T>;
+}
+
+/** Server-only helper: call the bound backend service over BACKEND_URL. */
+export function backendUrl(path = ""): string {
+  const base = process.env.BACKEND_URL;
+  if (!base) {
+    throw new Error("BACKEND_URL is not set (service binding missing)");
+  }
+  return new URL(path.replace(/^\//, ""), base.endsWith("/") ? base : `${base}/`).toString();
 }
 
 /** Single cached book fetch — preferred over separate portfolio+positions. */

@@ -14,7 +14,8 @@ risk-watcher-poc/
 │       ├── risk/     # Live scoring & explanation engine
 │       ├── ingest/   # Simulated Kafka-like consumer (stub)
 │       └── api/      # HTTP API for the dashboard
-├── frontend/         # Next.js dark-mode financial dashboard
+├── frontend/         # Next.js dashboard (Public-style light UI)
+├── vercel.json       # Vercel multi-service: frontend + Rust backend together
 └── docs/
     └── ARCHITECTURE.md
 ```
@@ -25,7 +26,23 @@ risk-watcher-poc/
 - Node 20+ (frontend)
 - An Unusual Whales API token in `.env` (see `.env.example`)
 
-## Quick start
+## Deploy (frontend + backend together)
+
+One Vercel project via root `vercel.json` services:
+
+- **frontend** (Next.js) — public UI
+- **backend** (Rust Axum container) — internal UW scoring; public only via `/api/*` and `/health` rewrites
+- Binding: `frontend` → `BACKEND_URL` → `backend` (server-side only)
+- Set **`UNUSUAL_WHALES_API_KEY`** in Vercel env (Production/Preview). Never use `NEXT_PUBLIC_*` for the key.
+
+```bash
+npx vercel@latest link
+npx vercel@latest env add UNUSUAL_WHALES_API_KEY
+npx vercel@latest --prod
+# or local multi-service: npx vercel@latest dev
+```
+
+## Quick start (local)
 
 ```bash
 # Backend (http://127.0.0.1:8080)
@@ -37,6 +54,7 @@ cargo run
 cd frontend
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8080 npm run dev -- -p 3000
 ```
+
 
 ## What’s live vs sample
 
