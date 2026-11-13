@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { fetchBook, fetchHealth, fetchMethodology, fetchProbe, type CacheMeta } from "@/lib/api";
 import type { FamilyScore, Methodology, PortfolioSummary, Position, ProbeResponse } from "@/lib/types";
@@ -26,6 +26,9 @@ const FALLBACK_FAMILIES: Array<{ family: string; label: string; max_points: numb
 type DetailTab = "drivers" | "breakdown" | "probe";
 type MainTab = "positions" | "mix" | "probe";
 
+/** Match backend book TTL (~45s) so polls refresh when the cache expires. */
+const POLL_INTERVAL_MS = 45_000;
+
 export function Dashboard() {
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
@@ -41,7 +44,10 @@ export function Dashboard() {
   const [detailTab, setDetailTab] = useState<DetailTab>("drivers");
   const [mainTab, setMainTab] = useState<MainTab>("positions");
   const [cache, setCache] = useState<CacheMeta | null>(null);
+  const [cacheAnchorMs, setCacheAnchorMs] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [search, setSearch] = useState("");
+  const hasBookRef = useRef(false);
 
   const selected = useMemo(
     () => positions.find((p) => p.id === selectedId) ?? positions[0] ?? null,
@@ -59,25 +65,41 @@ export function Dashboard() {
     );
   }, [positions, search]);
 
-  const load = useCallback(async (forceRefresh = false) => {
-    setError(null);
-    if (forceRefresh) setRefreshing(true);
-    else setLoading(true);
+  const cacheAgeSecs = useMemo(() => {
+    if (cacheAnchorMs != null) {
+      return Math.max(0, Math.floor((nowMs - cacheAnchorMs) / 1000));
+    }
+    return cache?.age_secs ?? 0;
+  }, [cache?.age_secs, cacheAnchorMs, nowMs]);
+
+  const load = useCallback(async (opts: boolean | { force?: boolean; silent?: boolean } = false) => {
+    const force = typeof opts === "boolean" ? opts : !!opts.force;
+    const silent = typeof opts === "object" && !!opts.silent;
+
+    if (!silent) setError(null);
+    if (force) setRefreshing(true);
+    else if (!silent) setLoading(true);
+
     try {
       const health = await fetchHealth();
       setBackendOk(health.status === "ok");
       const [book, m] = await Promise.all([
-        fetchBook(forceRefresh),
-        fetchMethodology().catch(() => null),
+        fetchBook(force),
+        silent ? Promise.resolve(null) : fetchMethodology().catch(() => null),
       ]);
       setSummary(book.summary);
       setPositions(book.positions);
       setCache(book.cache);
+      setCacheAnchorMs(Date.now() - book.cache.age_secs * 1000);
+      hasBookRef.current = book.positions.length > 0;
       if (m) setMethodology(m);
       if (book.positions[0]) setSelectedId((prev) => prev ?? book.positions[0].id);
+      if (silent) setError(null);
     } catch (e) {
-      setBackendOk(false);
-      setError(e instanceof Error ? e.message : "Failed to load dashboard data");
+      if (!silent || !hasBookRef.current) {
+        setBackendOk(false);
+        setError(e instanceof Error ? e.message : "Failed to load dashboard data");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -87,6 +109,53 @@ export function Dashboard() {
   useEffect(() => {
     void load(false);
   }, [load]);
+
+  // Live poll while the tab is visible — silent so the UI does not flash.
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    function clear() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function tick() {
+      if (document.visibilityState === "visible") {
+        void load({ silent: true });
+      }
+    }
+
+    function arm() {
+      clear();
+      if (document.visibilityState === "visible") {
+        timer = setInterval(tick, POLL_INTERVAL_MS);
+      }
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        void load({ silent: true });
+        arm();
+      } else {
+        clear();
+      }
+    }
+
+    arm();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clear();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [load]);
+
+  // Keep "Cached Ns" counting up between polls.
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   async function runProbe(ticker?: string) {
     const t = (ticker ?? probeTicker).trim() || "SPY";
@@ -190,10 +259,10 @@ export function Dashboard() {
               }`}
             >
               {live
-                ? cache?.hit
-                  ? `Cached ${cache.age_secs}s`
-                  : refreshing || loading
-                    ? "Updating…"
+                ? refreshing
+                  ? "Updating…"
+                  : cacheAgeSecs > 0
+                    ? `Cached ${cacheAgeSecs}s`
                     : "Live UW"
                 : loading
                   ? "…"
