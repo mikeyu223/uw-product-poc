@@ -4,7 +4,10 @@ use super::catalog::{
 };
 use super::curves::{exp_decay_near, log_ratio_cap, log_saturate, sigmoid_proximity};
 use super::{PositionRisk, RiskBucket, RiskDriver, ScoreBreakdown};
-use crate::uw::{FlowAlert, GexLevels, GreekExposure, InterpolatedIvPoint, IvRankPoint, TickerInfo};
+use crate::uw::{
+    DarkPoolLevel, FlowAlert, GexLevels, GreekExposure, InterpolatedIvPoint, IvRankPoint,
+    OptionContractTape, RiskReversalPoint, TickerInfo,
+};
 use chrono::{NaiveDate, Utc};
 
 /// User options position (book side) — strikes/qty are portfolio truth;
@@ -32,7 +35,11 @@ pub struct MarketContext {
     pub flow: Vec<FlowAlert>,
     pub info: Option<TickerInfo>,
     pub iv_rank: Option<IvRankPoint>,
-    pub interpolated_iv: Option<InterpolatedIvPoint>,
+    /// Full interpolated IV curve (1d / 5d / 7d / 14d / 30d …) for term structure.
+    pub interpolated_iv_curve: Vec<InterpolatedIvPoint>,
+    pub risk_reversal: Option<RiskReversalPoint>,
+    pub dark_pool_levels: Vec<DarkPoolLevel>,
+    pub contract_tape: Option<OptionContractTape>,
 }
 
 const METHODOLOGY: &str = "Hand-tuned 0–100 aggregate from mathematical proximity-to-harm drivers \
@@ -50,10 +57,10 @@ pub fn score_position(pos: &PositionInput, mkt: &MarketContext) -> PositionRisk 
     breakdown.gamma_regime = score_gamma_regime(mkt, &mut drivers);
     breakdown.flip_proximity = score_flip_proximity(spot, &mkt.gex, &mut drivers);
     breakdown.wall_conflict =
-        score_wall_conflict(pos, spot, is_call, is_long, &mkt.gex, &mut drivers);
+        score_wall_conflict(pos, spot, is_call, is_long, &mkt.gex, mkt, &mut drivers);
     breakdown.adverse_flow = score_adverse_flow(pos, is_call, is_long, &mkt.flow, &mut drivers);
-    breakdown.iv_regime = score_iv_regime(pos, is_long, mkt, &mut drivers);
-    breakdown.structure = score_structure(pos, spot, is_call, &mut drivers);
+    breakdown.iv_regime = score_iv_regime(pos, is_call, is_long, mkt, &mut drivers);
+    breakdown.structure = score_structure(pos, spot, is_call, mkt, &mut drivers);
     breakdown.catalyst = score_catalyst(mkt.info.as_ref(), &mut drivers);
 
     breakdown.gamma_regime = round1(breakdown.gamma_regime);
@@ -188,6 +195,7 @@ fn score_wall_conflict(
     is_call: bool,
     is_long: bool,
     gex: &GexLevels,
+    mkt: &MarketContext,
     drivers: &mut Vec<RiskDriver>,
 ) -> f64 {
     let call_wall = gex.call_wall_f64();
@@ -261,6 +269,48 @@ fn score_wall_conflict(
                         ),
                     );
                 }
+            }
+        }
+    }
+
+    // Dark pool price-level magnets / overhead supply (UW darkpool levels).
+    if spot > 0.0 && !mkt.dark_pool_levels.is_empty() {
+        let mut ranked: Vec<(f64, f64)> = mkt
+            .dark_pool_levels
+            .iter()
+            .filter_map(|l| Some((l.price_f64()?, l.dark_pool_volume_f64()?)))
+            .filter(|(px, vol)| *vol > 0.0 && ((*px - spot).abs() / spot) <= 0.04)
+            .collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some((px, vol)) = ranked.first().copied() {
+            let dist = ((px - spot).abs() / spot) * 100.0;
+            let mut add = exp_decay_near(dist, 0.6, 6.0);
+            // Long calls under a heavy DP print cluster = institutional supply overhead.
+            if is_long && is_call && px > spot {
+                add = (add * 1.15).min(6.0);
+            }
+            // Long calls with spot under a heavy print that was support = broken DP support.
+            if is_long && is_call && px < spot && vol >= 5_000_000.0 {
+                add = (add + 1.5).min(6.0);
+            }
+            let headroom = (MAX_WALL_CONFLICT - pts).max(0.0);
+            add = add.min(headroom);
+            if add >= 1.0 {
+                pts += add;
+                push(
+                    drivers,
+                    "dark_pool_level",
+                    if px >= spot {
+                        "Dark pool overhead / resistance"
+                    } else {
+                        "Dark pool support cluster"
+                    },
+                    add,
+                    "wall_conflict",
+                    format!(
+                        "Metric: top nearby DP level ${px:.2} (vol={vol:.0}) · |spot−level|/spot={dist:.2}%. Exp-decay → {add:.1}/6 within walls."
+                    ),
+                );
             }
         }
     }
@@ -374,6 +424,7 @@ fn score_structure(
     pos: &PositionInput,
     spot: f64,
     is_call: bool,
+    mkt: &MarketContext,
     drivers: &mut Vec<RiskDriver>,
 ) -> f64 {
     let dte = days_to_expiry(&pos.expiry).unwrap_or(30) as f64;
@@ -421,34 +472,79 @@ fn score_structure(
     }
 
     if pos.gamma.abs() >= 0.02 && dte <= 10.0 {
-        let g_pts = 1.5_f64;
-        pts += g_pts;
-        push(
-            drivers,
-            "high_gamma_cluster",
-            "High gamma into short DTE",
-            g_pts,
-            "structure",
-            format!(
-                "Metric: |γ|={g:.3} with DTE={dte:.0}≤10. Flat add {g_pts:.1}/2 within structure family.",
-                g = pos.gamma.abs()
-            ),
-        );
+        let g_pts = 1.5_f64.min((MAX_STRUCTURE - pts).max(0.0));
+        if g_pts >= 1.0 {
+            pts += g_pts;
+            push(
+                drivers,
+                "high_gamma_cluster",
+                "High gamma into short DTE",
+                g_pts,
+                "structure",
+                format!(
+                    "Metric: |γ|={g:.3} with DTE={dte:.0}≤10. Flat add {g_pts:.1}/2 within structure family.",
+                    g = pos.gamma.abs()
+                ),
+            );
+        }
+    }
+
+    // Contract liquidity / exit friction (NBBO spread + thin tape).
+    if let Some(tape) = &mkt.contract_tape {
+        let mut liq = 0.0_f64;
+        let mut detail = String::new();
+        if let Some(spread) = tape.spread_pct() {
+            // ≥3% of mid starts to matter; ≥10% is trapped-exit territory.
+            let spread_pts = log_saturate(spread, 4.0, 3.5);
+            if spread_pts >= 0.8 {
+                liq += spread_pts;
+                detail.push_str(&format!("spread={spread:.1}% of mid → {spread_pts:.1}; "));
+            }
+        }
+        let oi = tape.open_interest.unwrap_or(0) as f64;
+        let vol = tape.volume.unwrap_or(0) as f64;
+        if oi > 0.0 && oi < 2_000.0 {
+            let thin = log_saturate(2_000.0 - oi, 800.0, 2.0);
+            liq += thin;
+            detail.push_str(&format!("OI={oi:.0} thin → {thin:.1}; "));
+        } else if oi <= 0.0 && vol < 500.0 {
+            liq += 1.5;
+            detail.push_str("no OI + low volume → 1.5; ");
+        }
+        let headroom = (MAX_STRUCTURE - pts).max(0.0);
+        liq = liq.min(headroom);
+        if liq >= 1.0 {
+            pts += liq;
+            push(
+                drivers,
+                "liquidity_friction",
+                "Contract liquidity / exit friction",
+                liq,
+                "structure",
+                format!(
+                    "Metric: {detail}→ {liq:.1} within structure (bid-ask + OI/volume)."
+                ),
+            );
+        }
     }
 
     pts.min(MAX_STRUCTURE)
 }
 
 fn score_iv_regime(
-    pos: &PositionInput,
+    _pos: &PositionInput,
+    is_call: bool,
     is_long: bool,
     mkt: &MarketContext,
     drivers: &mut Vec<RiskDriver>,
 ) -> f64 {
     let iv_rank = mkt.iv_rank.as_ref().and_then(|r| r.iv_rank_pct());
     let iv_vol = mkt.iv_rank.as_ref().and_then(|r| r.volatility_f64());
-    let iv30_pct = mkt.interpolated_iv.as_ref().and_then(|r| r.percentile_pct());
-    let iv30_vol = mkt.interpolated_iv.as_ref().and_then(|r| r.volatility_f64());
+    let iv30 = nearest_iv_tenor(&mkt.interpolated_iv_curve, 30);
+    let iv7 = nearest_iv_tenor(&mkt.interpolated_iv_curve, 7);
+    let iv30_pct = iv30.and_then(|r| r.percentile_pct());
+    let iv30_vol = iv30.and_then(|r| r.volatility_f64());
+    let iv7_vol = iv7.and_then(|r| r.volatility_f64());
 
     // Prefer 1y IV Rank; fall back to 30d interpolated IV percentile.
     let Some(rank) = iv_rank.or(iv30_pct) else {
@@ -469,16 +565,14 @@ fn score_iv_regime(
         _ => rank,
     };
 
-    let (mut pts, code, label, harm_side) = if is_long {
+    let (mut pts, code, label) = if is_long {
         // Long premium: high IVR = crush / overpaid vega hazard.
-        // Distance-from-safe uses (100 - IVR) so high IVR → low distance → high points.
         let dist_from_cheap = (100.0 - effective).max(0.0);
         let pts = sigmoid_proximity(dist_from_cheap, 35.0, 0.08, MAX_IV_REGIME);
         (
             pts,
             "iv_crush_long",
             "High IV Rank crush risk (long premium)",
-            "long",
         )
     } else {
         // Short premium: low IVR = expansion hazard (selling cheap vol).
@@ -487,19 +581,66 @@ fn score_iv_regime(
             pts,
             "iv_expansion_short",
             "Low IV Rank expansion risk (short premium)",
-            "short",
         )
     };
 
+    let mut extras = String::new();
+
+    // Term structure backwardation: front IV >> back IV → event-crush denser than flat IVR.
+    if let (Some(front), Some(back)) = (iv7_vol, iv30_vol) {
+        if back > 0.0 {
+            let rich = (front / back) - 1.0;
+            if is_long && rich >= 0.12 {
+                let term_pts = log_saturate(rich * 100.0, 18.0, 3.5);
+                let room = (MAX_IV_REGIME - pts).max(0.0);
+                let add = term_pts.min(room);
+                if add >= 0.8 {
+                    pts += add;
+                    extras.push_str(&format!(
+                        " Term backwardation: 7d/30d IV={:.0}%/{:.0}% (front +{:.0}%) → +{add:.1}.",
+                        front * 100.0,
+                        back * 100.0,
+                        rich * 100.0
+                    ));
+                }
+            }
+        }
+    }
+
+    // 25Δ risk reversal skew tax (put IV − call IV).
+    if let Some(rr) = mkt.risk_reversal.as_ref().and_then(|r| r.risk_reversal_f64()) {
+        // Long OTM calls hurt when calls are rich (RR negative). Long puts hurt when puts rich (RR+).
+        let adverse = if is_long && is_call {
+            (-rr).max(0.0)
+        } else if is_long && !is_call {
+            rr.max(0.0)
+        } else if !is_long && is_call {
+            // Short calls hurt when call skew is cheap/expanding into puts? mild when RR very positive
+            rr.max(0.0) * 0.5
+        } else {
+            (-rr).max(0.0) * 0.5
+        };
+        if adverse >= 0.01 {
+            let skew_pts = log_saturate(adverse * 100.0, 2.5, 3.0);
+            let room = (MAX_IV_REGIME - pts).max(0.0);
+            let add = skew_pts.min(room);
+            if add >= 0.8 {
+                pts += add;
+                extras.push_str(&format!(
+                    " 25Δ RR={rr:+.3} adverse_skew → +{add:.1}."
+                ));
+            }
+        }
+    }
+
     // Interaction: long + earnings ≤7d + rich IV → crush trap boost.
-    let mut boost_note = String::new();
     if is_long && near_earnings && effective >= 80.0 {
         let boosted = (pts * 1.25).min(MAX_IV_REGIME);
         if boosted > pts {
-            boost_note = format!(
+            extras.push_str(&format!(
                 " Earnings≤7d + IVR≥80% boost ×1.25 → {boosted:.1}/{max:.0}.",
                 max = MAX_IV_REGIME
-            );
+            ));
             pts = boosted;
         }
     }
@@ -509,7 +650,6 @@ fn score_iv_regime(
     }
 
     let fmt_iv = |v: f64| -> String {
-        // UW may send 0.63 or 63.0 depending on endpoint.
         if v <= 3.0 {
             format!("{:.1}%", v * 100.0)
         } else {
@@ -530,12 +670,16 @@ fn score_iv_regime(
         pts,
         "iv_regime",
         format!(
-            "Metric: IV Rank={effective:.1}% ({harm_side} {side}). Position-aware sigmoid → {pts:.1}/{max:.0}.{vol_bits}{boost_note}",
-            side = pos.side,
+            "Metric: IV Rank={effective:.1}% ({side} premium). Position-aware sigmoid → {pts:.1}/{max:.0}.{vol_bits}{extras}",
+            side = if is_long { "long" } else { "short" },
             max = MAX_IV_REGIME
         ),
     );
     pts.min(MAX_IV_REGIME)
+}
+
+fn nearest_iv_tenor(curve: &[InterpolatedIvPoint], target_days: i64) -> Option<&InterpolatedIvPoint> {
+    curve.iter().min_by_key(|r| (r.days.unwrap_or(999) - target_days).abs())
 }
 
 fn score_catalyst(info: Option<&TickerInfo>, drivers: &mut Vec<RiskDriver>) -> f64 {

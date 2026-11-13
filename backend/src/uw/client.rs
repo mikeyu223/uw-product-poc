@@ -1,7 +1,8 @@
 use super::error::{UwError, UwResult};
 use super::models::{
-    FlowAlert, GexLevels, GexSource, GreekExposure, InterpolatedIvPoint, IvRankPoint,
-    MarketTidePoint, StockState, TickerInfo, UwEnvelope,
+    DarkPoolLevel, FlowAlert, GexLevels, GexSource, GreekExposure, InterpolatedIvPoint,
+    IvRankPoint, MarketTidePoint, OptionContractHistoric, OptionContractTape, RiskReversalPoint,
+    StockState, TickerInfo, UwEnvelope,
 };
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
@@ -124,6 +125,47 @@ impl UwClient {
             .min_by_key(|r| (r.days.unwrap_or(999) - 30).abs())
             .cloned();
         Ok(best)
+    }
+
+    /// `GET /api/stock/{ticker}/historical-risk-reversal-skew` — newest last.
+    pub async fn risk_reversal_skew(
+        &self,
+        ticker: &str,
+        delta: i64,
+    ) -> UwResult<Vec<RiskReversalPoint>> {
+        let path = format!(
+            "/api/stock/{}/historical-risk-reversal-skew",
+            normalize_ticker(ticker)
+        );
+        let delta_s = delta.to_string();
+        let env: UwEnvelope<Vec<RiskReversalPoint>> =
+            self.get_json(&path, &[("delta", delta_s.as_str())]).await?;
+        Ok(env.data)
+    }
+
+    pub async fn latest_risk_reversal(&self, ticker: &str) -> UwResult<Option<RiskReversalPoint>> {
+        Ok(self
+            .risk_reversal_skew(ticker, 25)
+            .await?
+            .into_iter()
+            .next_back())
+    }
+
+    /// `GET /api/darkpool/{ticker}/price-levels`
+    pub async fn darkpool_price_levels(&self, ticker: &str) -> UwResult<Vec<DarkPoolLevel>> {
+        let path = format!("/api/darkpool/{}/price-levels", normalize_ticker(ticker));
+        let env: UwEnvelope<Vec<DarkPoolLevel>> = self.get_json(&path, &[]).await?;
+        Ok(env.data)
+    }
+
+    /// `GET /api/option-contract/{occ}/historic` — newest tape row first usually.
+    pub async fn option_contract_latest_tape(
+        &self,
+        occ: &str,
+    ) -> UwResult<Option<OptionContractTape>> {
+        let path = format!("/api/option-contract/{occ}/historic");
+        let env: OptionContractHistoric = self.get_json(&path, &[]).await?;
+        Ok(env.chains.unwrap_or_default().into_iter().next())
     }
 
     /// Lightweight connectivity check: fetch ticker info + GEX levels.

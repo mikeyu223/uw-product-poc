@@ -144,16 +144,22 @@ pub async fn score_book(uw: &UwClient) -> Result<Vec<ScoredPosition>, UwError> {
 async fn score_one(uw: &UwClient, pos: &PositionInput) -> Result<ScoredPosition, UwError> {
     let ticker = &pos.ticker;
 
+    let occ = occ_symbol(ticker, &pos.expiry, &pos.option_type, pos.strike);
+
     // Parallel UW calls for this ticker (was sequential before).
-    let (state_r, gex_r, greek_r, flow_r, info_r, iv_r, iv30_r) = tokio::join!(
-        uw.stock_state(ticker),
-        uw.gex_levels(ticker, GexSource::Vol),
-        uw.latest_greek_exposure(ticker),
-        uw.flow_alerts(ticker, 40),
-        uw.ticker_info(ticker),
-        uw.latest_iv_rank(ticker),
-        uw.interpolated_iv_near_30d(ticker),
-    );
+    let (state_r, gex_r, greek_r, flow_r, info_r, iv_r, iv_curve_r, rr_r, dp_r, tape_r) =
+        tokio::join!(
+            uw.stock_state(ticker),
+            uw.gex_levels(ticker, GexSource::Vol),
+            uw.latest_greek_exposure(ticker),
+            uw.flow_alerts(ticker, 40),
+            uw.ticker_info(ticker),
+            uw.latest_iv_rank(ticker),
+            uw.interpolated_iv(ticker),
+            uw.latest_risk_reversal(ticker),
+            uw.darkpool_price_levels(ticker),
+            uw.option_contract_latest_tape(&occ),
+        );
 
     let state = state_r?;
     let spot = state
@@ -168,7 +174,10 @@ async fn score_one(uw: &UwClient, pos: &PositionInput) -> Result<ScoredPosition,
     let flow = flow_r.unwrap_or_default();
     let info = info_r.ok();
     let iv_rank = iv_r.ok().flatten();
-    let interpolated_iv = iv30_r.ok().flatten();
+    let interpolated_iv_curve = iv_curve_r.unwrap_or_default();
+    let risk_reversal = rr_r.ok().flatten();
+    let dark_pool_levels = dp_r.unwrap_or_default();
+    let contract_tape = tape_r.ok().flatten();
 
     let mkt = MarketContext {
         spot,
@@ -177,7 +186,10 @@ async fn score_one(uw: &UwClient, pos: &PositionInput) -> Result<ScoredPosition,
         flow,
         info,
         iv_rank,
-        interpolated_iv,
+        interpolated_iv_curve,
+        risk_reversal,
+        dark_pool_levels,
+        contract_tape,
     };
 
     let risk = score_position(pos, &mkt);
@@ -204,4 +216,28 @@ async fn score_one(uw: &UwClient, pos: &PositionInput) -> Result<ScoredPosition,
         },
         risk,
     })
+}
+
+/// OCC option symbol: `NVDA261218C00185000`.
+fn occ_symbol(ticker: &str, expiry: &str, option_type: &str, strike: f64) -> String {
+    let date = expiry.get(..10).unwrap_or(expiry);
+    let yymmdd = date
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>();
+    let yymmdd = if yymmdd.len() >= 8 {
+        yymmdd[yymmdd.len() - 6..].to_string()
+    } else {
+        yymmdd
+    };
+    let cp = if option_type.eq_ignore_ascii_case("put") {
+        'P'
+    } else {
+        'C'
+    };
+    let strike_i = (strike * 1000.0).round() as i64;
+    format!(
+        "{t}{yymmdd}{cp}{strike_i:08}",
+        t = ticker.to_ascii_uppercase()
+    )
 }

@@ -231,3 +231,67 @@ impl InterpolatedIvPoint {
         self.volatility.as_ref()?.parse().ok()
     }
 }
+
+/// Historical 25Δ / 10Δ risk reversal — GET /api/stock/{ticker}/historical-risk-reversal-skew
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RiskReversalPoint {
+    pub date: Option<String>,
+    pub ticker: Option<String>,
+    pub delta: Option<i64>,
+    pub risk_reversal: Option<String>,
+}
+
+impl RiskReversalPoint {
+    /// Put IV − call IV (UW convention). Positive = put skew rich.
+    pub fn risk_reversal_f64(&self) -> Option<f64> {
+        self.risk_reversal.as_ref()?.parse().ok()
+    }
+}
+
+/// Dark pool aggregated price levels — GET /api/darkpool/{ticker}/price-levels
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DarkPoolLevel {
+    pub price: Option<String>,
+    pub dark_pool_volume: Option<String>,
+    pub regular_volume: Option<String>,
+}
+
+impl DarkPoolLevel {
+    pub fn price_f64(&self) -> Option<f64> {
+        self.price.as_ref()?.parse().ok()
+    }
+
+    pub fn dark_pool_volume_f64(&self) -> Option<f64> {
+        self.dark_pool_volume.as_ref()?.parse().ok()
+    }
+}
+
+/// One row from option-contract historic (liquidity / NBBO).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OptionContractTape {
+    pub date: Option<String>,
+    pub volume: Option<i64>,
+    pub open_interest: Option<i64>,
+    pub nbbo_bid: Option<String>,
+    pub nbbo_ask: Option<String>,
+    pub last_price: Option<String>,
+    pub implied_volatility: Option<String>,
+    pub total_premium: Option<String>,
+}
+
+impl OptionContractTape {
+    pub fn spread_pct(&self) -> Option<f64> {
+        let bid: f64 = self.nbbo_bid.as_ref()?.parse().ok()?;
+        let ask: f64 = self.nbbo_ask.as_ref()?.parse().ok()?;
+        let mid = (bid + ask) / 2.0;
+        if mid <= 0.0 {
+            return None;
+        }
+        Some(((ask - bid).abs() / mid) * 100.0)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OptionContractHistoric {
+    pub chains: Option<Vec<OptionContractTape>>,
+}
