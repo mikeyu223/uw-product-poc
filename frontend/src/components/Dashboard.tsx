@@ -879,7 +879,10 @@ function BreakdownPopup({
                 </div>
               </div>
               <div className="text-right">
-                <div className="mono text-[22px] font-semibold leading-none text-[#111]">
+                <div
+                  className="mono text-[22px] font-semibold leading-none"
+                  style={{ color: scoreBarHex(p.score) }}
+                >
                   {p.score}
                 </div>
                 <div className="mono text-[11px] text-[#8a8a90]">/ {p.score_max ?? 100}</div>
@@ -899,10 +902,13 @@ function BreakdownPopup({
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-[#f0f0f2]">
                       <div
-                        className="h-full rounded-full bg-[#111]"
+                        className="h-full rounded-full"
                         style={{
                           width: `${pct}%`,
-                          opacity: 0.25 + (pct / 100) * 0.75,
+                          background:
+                            row.points <= 0
+                              ? "transparent"
+                              : scoreBarHex((row.points / row.max_points) * 100),
                         }}
                       />
                     </div>
