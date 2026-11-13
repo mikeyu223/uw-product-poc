@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f7f7f8;
+  --bg-elevated: #ffffff;
+  --bg-panel: #ffffff;
+  --border: #e8e8ea;
+  --border-strong: #d4d4d8;
+  --text: #0a0a0b;
+  --text-muted: #6b6b73;
+  --text-dim: #9a9aa3;
+  --accent: #2563eb;
+  --accent-soft: #eff4ff;
+  --ink: #111113;
+  --up: #16a34a;
+  --down: #dc2626;
+  --call: #16a34a;
+  --put: #e11d48;
+  --promo: #0b1b3a;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--text);
+  background: var(--bg-soft);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cfcfd4;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer utilities {
+  .panel {
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background-color: var(--bg);
+  }
+  .mono {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.risk-bar-fill {
+  transform-origin: left center;
+  animation: bar-grow 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
