@@ -760,32 +760,27 @@ function familyRowsFor(p: Position): FamilyScore[] {
   return rows.filter((r) => r.points > 0.05);
 }
 
-function strategyIdeasFor(p: Position): Array<{ title: string; blurb: string; tone: string }> {
+function suggestedPromptsFor(p: Position): string[] {
   const isPut = p.option_type === "put";
-  const hot = p.score >= 55;
   return [
-    {
-      title: hot ? "Trim / hedge size" : "Hold with alert",
-      blurb: hot
-        ? `Scale down ${p.ticker} ${isPut ? "put" : "call"} exposure while dealer gamma stays adverse.`
-        : `Keep the ${p.ticker} book but set a score alert above ${Math.min(99, p.score + 15)}.`,
-      tone: hot ? "border-orange-200 bg-orange-50" : "border-emerald-200 bg-emerald-50",
-    },
-    {
-      title: isPut ? "Roll put down / out" : "Roll call up / out",
-      blurb: isPut
-        ? "Move strike further OTM or push expiry out a week to cut flip / wall conflict."
-        : "Roll to a higher strike or later expiry to reduce vega crush near the walls.",
-      tone: "border-sky-200 bg-sky-50",
-    },
-    {
-      title: "Defined-risk replace",
-      blurb: isPut
-        ? `Swap naked risk for a ${p.ticker} put debit spread into the next catalyst window.`
-        : `Replace with a ${p.ticker} call debit spread so max loss is capped into the event.`,
-      tone: "border-violet-200 bg-violet-50",
-    },
+    "Explain this simply",
+    `Why is ${p.ticker} scoring ${p.score}?`,
+    isPut ? "What strategies can I use on this put?" : "What strategies can I use on this call?",
   ];
+}
+
+function mockAiReply(p: Position, prompt: string): string {
+  const top = p.drivers[0];
+  const isPut = p.option_type === "put";
+  if (/strateg/i.test(prompt)) {
+    return isPut
+      ? `For this ${p.ticker} put, consider trimming size, rolling the strike further OTM / out in time, or swapping into a put debit spread so risk is defined. Demo reply only.`
+      : `For this ${p.ticker} call, consider trimming size, rolling up / out, or replacing with a call debit spread into the next catalyst. Demo reply only.`;
+  }
+  if (/why/i.test(prompt)) {
+    return `${p.ticker} is ${bucketLabel(p.bucket).toLowerCase()} at ${p.score}/100, led by ${top?.label?.toLowerCase() ?? "dealer positioning"}${top?.detail ? ` — ${top.detail.slice(0, 120)}` : ""}. Demo reply only.`;
+  }
+  return `${p.ticker} ${p.option_type} ${p.strike} is scoring ${p.score} mainly from ${top?.label?.toLowerCase() ?? "live UW drivers"}. Negative gamma and nearby walls can amplify moves against this structure. Demo reply only.`;
 }
 
 function BreakdownPopup({
@@ -796,9 +791,22 @@ function BreakdownPopup({
   onClose: () => void;
 }) {
   const families = familyRowsFor(p);
-  const strategies = strategyIdeasFor(p);
-  const [aiOpen, setAiOpen] = useState(false);
+  const prompts = suggestedPromptsFor(p);
   const top = p.drivers[0];
+  const [tab, setTab] = useState<"explanation" | "ask">("explanation");
+  const [draft, setDraft] = useState("");
+  const [thread, setThread] = useState<Array<{ role: "user" | "ai"; text: string }>>([]);
+
+  function sendPrompt(text: string) {
+    const q = text.trim();
+    if (!q) return;
+    setThread((prev) => [
+      ...prev,
+      { role: "user", text: q },
+      { role: "ai", text: mockAiReply(p, q) },
+    ]);
+    setDraft("");
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -815,127 +823,173 @@ function BreakdownPopup({
       <button
         type="button"
         aria-label="Close breakdown"
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-black/35"
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`${p.ticker} breakdown`}
-        className="relative z-[1] max-h-[min(640px,calc(100dvh-24px))] w-full max-w-[380px] overflow-auto rounded-2xl border border-[var(--border)] bg-white p-4 shadow-[0_16px_48px_rgba(15,15,20,0.18)]"
+        className="relative z-[1] flex max-h-[min(640px,calc(100dvh-24px))] w-full max-w-[400px] flex-col overflow-hidden rounded-2xl border border-[#e8e8ea] bg-white shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
       >
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2">
+        <div className="flex items-center justify-between gap-3 px-4 pb-1 pt-3.5">
+          <div className="inline-flex rounded-full border border-[#e8e8ea] bg-[#f7f7f8] p-0.5">
             <button
               type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="-ml-1 -mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-[22px] leading-none text-[var(--text-muted)] hover:text-[var(--ink)]"
+              onClick={() => setTab("explanation")}
+              className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${
+                tab === "explanation"
+                  ? "border border-[#e8e8ea] bg-white text-[#111] shadow-sm"
+                  : "text-[#8a8a90]"
+              }`}
             >
-              ×
+              Explanation
             </button>
-            <div className="min-w-0">
-              <div className="text-[15px] font-bold text-[var(--ink)]">
-                {p.ticker}{" "}
-                <span className="font-medium text-[var(--text-muted)]">breakdown</span>
-              </div>
-              <div className="mono text-[11px] text-[var(--text-dim)]">
-                {p.option_type} {p.strike} · {bucketLabel(p.bucket)}
-              </div>
-            </div>
-          </div>
-          <div className="shrink-0 text-right">
-            <div
-              className="mono text-[20px] font-extrabold leading-none"
-              style={{ color: scoreBarHex(p.score) }}
+            <button
+              type="button"
+              onClick={() => setTab("ask")}
+              className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${
+                tab === "ask"
+                  ? "border border-[#e8e8ea] bg-white text-[#111] shadow-sm"
+                  : "text-[#8a8a90]"
+              }`}
             >
-              {p.score}
+              Ask AI
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center text-[22px] leading-none text-[#8a8a90] hover:text-[#111]"
+          >
+            ×
+          </button>
+        </div>
+
+        {tab === "explanation" ? (
+          <div className="flex-1 overflow-auto px-4 pb-4 pt-3">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[17px] font-semibold tracking-tight text-[#111]">
+                  {p.ticker} breakdown
+                </div>
+                <div className="mt-0.5 text-[13px] text-[#8a8a90]">
+                  {p.option_type} {p.strike} · {bucketLabel(p.bucket)}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="mono text-[22px] font-semibold leading-none text-[#111]">
+                  {p.score}
+                </div>
+                <div className="mono text-[11px] text-[#8a8a90]">/ {p.score_max ?? 100}</div>
+              </div>
             </div>
-            <div className="mono text-[10px] text-[var(--text-dim)]">
-              / {p.score_max ?? 100}
+            <ul className="space-y-3">
+              {families.map((row) => {
+                const pct = Math.min(100, (row.points / row.max_points) * 100);
+                return (
+                  <li key={row.family}>
+                    <div className="mb-1 flex justify-between gap-2 text-[12px]">
+                      <span className="truncate text-[#5c5c62]">{row.label}</span>
+                      <span className="mono shrink-0 text-[#111]">
+                        {row.points.toFixed(1)}
+                        <span className="text-[#8a8a90]">/{row.max_points}</span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-[#f0f0f2]">
+                      <div
+                        className="h-full rounded-full bg-[#111]"
+                        style={{
+                          width: `${pct}%`,
+                          opacity: 0.25 + (pct / 100) * 0.75,
+                        }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {top && (
+              <p className="mt-4 border-t border-[#eee] pt-3 text-[12px] leading-relaxed text-[#5c5c62]">
+                <span className="font-medium text-[#111]">Top: </span>
+                {top.label}
+                {top.detail ? ` — ${top.detail.slice(0, 110)}` : ""}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex-1 overflow-auto px-4 pb-3 pt-3">
+              <h2 className="text-[20px] font-semibold tracking-tight text-[#111]">
+                Ask riskwatcher <span className="text-[#8a8a90]">✦</span>
+              </h2>
+              <p className="mt-1 text-[13px] text-[#8a8a90]">
+                Stuck? Ask about this {p.ticker} score.
+              </p>
+
+              {thread.length > 0 && (
+                <div className="mt-4 space-y-3">
+                  {thread.map((m, i) => (
+                    <div
+                      key={`${m.role}-${i}`}
+                      className={`rounded-xl border border-[#e8e8ea] px-3 py-2.5 text-[13px] leading-relaxed ${
+                        m.role === "user" ? "bg-[#f7f7f8] text-[#111]" : "bg-white text-[#5c5c62]"
+                      }`}
+                    >
+                      {m.text}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-5">
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-[#8a8a90]">
+                  Suggested questions
+                </div>
+                <div className="space-y-2">
+                  {prompts.map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => sendPrompt(q)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[#e8e8ea] bg-white px-3.5 py-3 text-left text-[14px] text-[#111] hover:bg-[#fafafa]"
+                    >
+                      <span>{q}</span>
+                      <span className="text-[#b0b0b5]" aria-hidden>
+                        →
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-[#eee] px-3 py-3">
+              <form
+                className="flex items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  sendPrompt(draft);
+                }}
+              >
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder="Ask about this position…"
+                  className="h-11 flex-1 rounded-xl border border-[#e8e8ea] bg-white px-3.5 text-[14px] text-[#111] outline-none placeholder:text-[#b0b0b5] focus:border-[#cfcfd4]"
+                />
+                <button
+                  type="submit"
+                  aria-label="Send"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f0f0f2] text-[16px] text-[#5c5c62] hover:bg-[#e8e8ea]"
+                >
+                  ↑
+                </button>
+              </form>
             </div>
           </div>
-        </div>
-        <ul className="space-y-2.5">
-          {families.map((row) => {
-            const pct = Math.min(100, (row.points / row.max_points) * 100);
-            return (
-              <li key={row.family}>
-                <div className="mb-0.5 flex justify-between gap-2 text-[11px]">
-                  <span className="truncate text-[var(--text-muted)]">{row.label}</span>
-                  <span className="mono shrink-0 font-semibold text-[var(--ink)]">
-                    {row.points.toFixed(1)}
-                    <span className="font-medium text-[var(--text-dim)]">/{row.max_points}</span>
-                  </span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-soft)]">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${pct}%`,
-                      background:
-                        row.points <= 0
-                          ? "transparent"
-                          : scoreBarHex((row.points / row.max_points) * 100),
-                    }}
-                  />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-        {top && (
-          <p className="mt-3 border-t border-[var(--border)] pt-2.5 text-[11px] leading-snug text-[var(--text-muted)]">
-            <span className="font-semibold text-[var(--ink)]">Top: </span>
-            {top.label}
-            {top.detail ? ` — ${top.detail.slice(0, 110)}` : ""}
-          </p>
         )}
-
-        <div className="mt-3 rounded-xl border border-[var(--accent)]/25 bg-[var(--accent-soft)] p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="text-[12px] font-bold text-[var(--ink)]">Ask AI</div>
-              <div className="text-[11px] text-[var(--text-muted)]">
-                Explain this score in plain English
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setAiOpen((v) => !v)}
-              className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-1.5 text-[11px] font-semibold text-white hover:opacity-90"
-            >
-              {aiOpen ? "Hide" : "Explain"}
-            </button>
-          </div>
-          {aiOpen && (
-            <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--ink)]">
-              {p.ticker} is scoring {p.score} ({bucketLabel(p.bucket)}) mainly from{" "}
-              {top?.label?.toLowerCase() ?? "dealer positioning"}.{" "}
-              {top?.detail
-                ? top.detail.slice(0, 160)
-                : "Negative gamma and nearby walls can amplify moves against this structure."}{" "}
-              Treat this as a demo explanation — wire a real model later.
-            </p>
-          )}
-        </div>
-
-        <div className="mt-3">
-          <div className="mb-2 flex items-baseline justify-between gap-2">
-            <div className="text-[12px] font-bold text-[var(--ink)]">Strategies to consider</div>
-            <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-dim)]">
-              UI preview
-            </span>
-          </div>
-          <div className="space-y-2">
-            {strategies.map((s) => (
-              <div key={s.title} className={`rounded-xl border px-3 py-2.5 ${s.tone}`}>
-                <div className="text-[12px] font-semibold text-[var(--ink)]">{s.title}</div>
-                <p className="mt-0.5 text-[11px] leading-snug text-[var(--text-muted)]">{s.blurb}</p>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </div>,
     document.body,
