@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { fetchBook, fetchHealth, fetchMethodology, fetchProbe, type CacheMeta } from "@/lib/api";
 import type { FamilyScore, Methodology, PortfolioSummary, Position, ProbeResponse } from "@/lib/types";
@@ -760,6 +760,112 @@ function familyRowsFor(p: Position): FamilyScore[] {
   return rows.filter((r) => r.points > 0.05);
 }
 
+function BreakdownPopup({
+  position: p,
+  onClose,
+}: {
+  position: Position;
+  onClose: () => void;
+}) {
+  const families = familyRowsFor(p);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-end justify-center p-3 sm:items-center sm:p-4">
+      <button
+        type="button"
+        aria-label="Close breakdown"
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${p.ticker} breakdown`}
+        className="relative z-[1] max-h-[min(520px,calc(100dvh-24px))] w-full max-w-[360px] overflow-auto rounded-2xl border border-[var(--border)] bg-white p-4 shadow-[0_16px_48px_rgba(15,15,20,0.18)]"
+      >
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0 pr-2">
+            <div className="text-[15px] font-bold text-[var(--ink)]">
+              {p.ticker}{" "}
+              <span className="font-medium text-[var(--text-muted)]">breakdown</span>
+            </div>
+            <div className="mono text-[11px] text-[var(--text-dim)]">
+              {p.option_type} {p.strike} · {bucketLabel(p.bucket)}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-start gap-2">
+            <div className="text-right">
+              <div
+                className="mono text-[20px] font-extrabold leading-none"
+                style={{ color: scoreBarHex(p.score) }}
+              >
+                {p.score}
+              </div>
+              <div className="mono text-[10px] text-[var(--text-dim)]">
+                / {p.score_max ?? 100}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-soft)] text-[15px] font-semibold text-[var(--text-muted)] hover:bg-white hover:text-[var(--ink)]"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        <ul className="space-y-2.5">
+          {families.map((row) => {
+            const pct = Math.min(100, (row.points / row.max_points) * 100);
+            return (
+              <li key={row.family}>
+                <div className="mb-0.5 flex justify-between gap-2 text-[11px]">
+                  <span className="truncate text-[var(--text-muted)]">{row.label}</span>
+                  <span className="mono shrink-0 font-semibold text-[var(--ink)]">
+                    {row.points.toFixed(1)}
+                    <span className="font-medium text-[var(--text-dim)]">/{row.max_points}</span>
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-soft)]">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${pct}%`,
+                      background:
+                        row.points <= 0
+                          ? "transparent"
+                          : scoreBarHex((row.points / row.max_points) * 100),
+                    }}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        {p.drivers[0] && (
+          <p className="mt-3 border-t border-[var(--border)] pt-2.5 text-[11px] leading-snug text-[var(--text-muted)]">
+            <span className="font-semibold text-[var(--ink)]">Top: </span>
+            {p.drivers[0].label}
+            {p.drivers[0].detail ? ` — ${p.drivers[0].detail.slice(0, 110)}` : ""}
+          </p>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function PositionMobileCard({
   position: p,
   active,
@@ -771,110 +877,61 @@ function PositionMobileCard({
   dimmed: boolean;
   onSelect: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const families = familyRowsFor(p);
+  const [open, setOpen] = useState(false);
 
   return (
-    <div
-      className={`rounded-xl border bg-white p-3.5 ${
-        active ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--border)]"
-      } ${dimmed ? "opacity-80" : ""}`}
-    >
+    <>
       <button
         type="button"
-        className="flex w-full items-start justify-between gap-3 text-left"
+        className={`w-full rounded-xl border bg-white p-3.5 text-left ${
+          active ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--border)]"
+        } ${dimmed ? "opacity-80" : ""}`}
         onClick={() => {
           onSelect();
-          setExpanded((v) => !v);
+          setOpen(true);
         }}
       >
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[16px] font-bold text-[var(--ink)]">{p.ticker}</span>
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${bucketBg(p.bucket)} ${bucketColor(p.bucket)}`}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[16px] font-bold text-[var(--ink)]">{p.ticker}</span>
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${bucketBg(p.bucket)} ${bucketColor(p.bucket)}`}
+              >
+                {bucketLabel(p.bucket)}
+              </span>
+            </div>
+            <div className="mt-1 mono text-[12px]">
+              <span className={p.option_type === "put" ? "text-[var(--put)]" : "text-[var(--call)]"}>
+                {p.option_type}
+              </span>{" "}
+              {p.strike}
+              <span className="text-[var(--text-dim)]"> · {p.expiry.slice(5)}</span>
+              <span className="text-[var(--text-dim)]">
+                {" "}
+                · spot {p.underlying_price ? p.underlying_price.toFixed(2) : "—"}
+              </span>
+            </div>
+            <p className="mt-1.5 line-clamp-2 text-[12px] text-[var(--text-muted)]">
+              {p.drivers[0]?.label ?? "—"}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <div
+              className="mono text-[22px] font-extrabold leading-none"
+              style={{ color: scoreBarHex(p.score) }}
             >
-              {bucketLabel(p.bucket)}
-            </span>
-          </div>
-          <div className="mt-1 mono text-[12px]">
-            <span className={p.option_type === "put" ? "text-[var(--put)]" : "text-[var(--call)]"}>
-              {p.option_type}
-            </span>{" "}
-            {p.strike}
-            <span className="text-[var(--text-dim)]"> · {p.expiry.slice(5)}</span>
-            <span className="text-[var(--text-dim)]">
-              {" "}
-              · spot {p.underlying_price ? p.underlying_price.toFixed(2) : "—"}
-            </span>
-          </div>
-          <p className="mt-1.5 line-clamp-2 text-[12px] text-[var(--text-muted)]">
-            {p.drivers[0]?.label ?? "—"}
-          </p>
-        </div>
-        <div className="shrink-0 text-right">
-          <div
-            className="mono text-[22px] font-extrabold leading-none"
-            style={{ color: scoreBarHex(p.score) }}
-          >
-            {p.score}
-          </div>
-          <div className="mt-2 w-16">
-            <RiskBar score={p.score} wide />
+              {p.score}
+            </div>
+            <div className="mt-2 w-16">
+              <RiskBar score={p.score} wide />
+            </div>
           </div>
         </div>
       </button>
-
-      {expanded && families.length > 0 && (
-        <ul className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
-          {families.map((row) => {
-            const pct = Math.min(100, (row.points / row.max_points) * 100);
-            return (
-              <li key={row.family}>
-                <div className="mb-0.5 flex justify-between gap-2 text-[11px]">
-                  <span className="truncate text-[var(--text-muted)]">{row.label}</span>
-                  <span className="mono shrink-0 font-semibold text-[var(--ink)]">
-                    {row.points.toFixed(1)}
-                    <span className="text-[var(--text-dim)]">/{row.max_points}</span>
-                  </span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-soft)]">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${pct}%`,
-                      background: scoreBarHex((row.points / row.max_points) * 100),
-                    }}
-                  />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+      {open && <BreakdownPopup position={p} onClose={() => setOpen(false)} />}
+    </>
   );
-}
-
-function canUseHoverCard() {
-  if (typeof window === "undefined") return false;
-  return (
-    window.matchMedia("(hover: hover) and (pointer: fine)").matches &&
-    window.matchMedia("(min-width: 1024px)").matches
-  );
-}
-
-function placeBreakdownNearCursor(clientX: number, clientY: number) {
-  const width = Math.min(320, window.innerWidth - 24);
-  const height = 320;
-  const gap = 16;
-  let left = clientX + gap;
-  let top = clientY + gap;
-  if (left + width > window.innerWidth - 12) left = clientX - width - gap;
-  if (top + height > window.innerHeight - 12) top = clientY - height - gap;
-  left = Math.max(12, Math.min(left, window.innerWidth - width - 12));
-  top = Math.max(12, Math.min(top, window.innerHeight - height - 12));
-  return { top, left, width };
 }
 
 function PositionTableRow({
@@ -888,40 +945,15 @@ function PositionTableRow({
   dimmed: boolean;
   onSelect: () => void;
 }) {
-  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState({ top: 0, left: 0, width: 320 });
-
-  function clearLeave() {
-    if (leaveTimer.current) {
-      clearTimeout(leaveTimer.current);
-      leaveTimer.current = null;
-    }
-  }
-
-  function onRowMouseMove(e: MouseEvent<HTMLTableRowElement>) {
-    if (!canUseHoverCard()) return;
-    clearLeave();
-    setCoords(placeBreakdownNearCursor(e.clientX, e.clientY));
-    setOpen(true);
-  }
-
-  function scheduleHide() {
-    clearLeave();
-    leaveTimer.current = setTimeout(() => setOpen(false), 100);
-  }
-
-  useEffect(() => () => clearLeave(), []);
-
-  const families = familyRowsFor(p);
 
   return (
     <>
       <tr
-        onClick={onSelect}
-        onMouseEnter={onRowMouseMove}
-        onMouseMove={onRowMouseMove}
-        onMouseLeave={scheduleHide}
+        onClick={() => {
+          onSelect();
+          setOpen(true);
+        }}
         className={`cursor-pointer border-b border-[var(--border)] last:border-0 ${
           active ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--bg-soft)]"
         } ${dimmed ? "opacity-80" : ""}`}
@@ -964,75 +996,7 @@ function PositionTableRow({
           {p.drivers[0]?.label ?? "—"}
         </td>
       </tr>
-      {open &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            role="tooltip"
-            onMouseEnter={clearLeave}
-            onMouseLeave={scheduleHide}
-            className="pointer-events-none fixed z-[80] max-h-[min(360px,calc(100vh-24px))] overflow-auto rounded-xl border border-[var(--border)] bg-white p-3.5 shadow-[0_12px_40px_rgba(15,15,20,0.12)]"
-            style={{ top: coords.top, left: coords.left, width: coords.width }}
-          >
-            <div className="mb-2.5 flex items-start justify-between gap-2">
-              <div>
-                <div className="text-[14px] font-bold text-[var(--ink)]">
-                  {p.ticker}{" "}
-                  <span className="font-medium text-[var(--text-muted)]">breakdown</span>
-                </div>
-                <div className="mono text-[11px] text-[var(--text-dim)]">
-                  {p.option_type} {p.strike} · {bucketLabel(p.bucket)}
-                </div>
-              </div>
-              <div className="text-right">
-                <div
-                  className="mono text-[20px] font-extrabold leading-none"
-                  style={{ color: scoreBarHex(p.score) }}
-                >
-                  {p.score}
-                </div>
-                <div className="mono text-[10px] text-[var(--text-dim)]">
-                  / {p.score_max ?? 100}
-                </div>
-              </div>
-            </div>
-            <ul className="space-y-2">
-              {families.map((row) => {
-                const pct = Math.min(100, (row.points / row.max_points) * 100);
-                return (
-                  <li key={row.family}>
-                    <div className="mb-0.5 flex justify-between gap-2 text-[11px]">
-                      <span className="truncate text-[var(--text-muted)]">{row.label}</span>
-                      <span className="mono shrink-0 font-semibold text-[var(--ink)]">
-                        {row.points.toFixed(1)}
-                        <span className="font-medium text-[var(--text-dim)]">/{row.max_points}</span>
-                      </span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-soft)]">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${pct}%`,
-                          background: row.points <= 0 ? "transparent" : scoreBarHex(
-                            (row.points / row.max_points) * 100,
-                          ),
-                        }}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            {p.drivers[0] && (
-              <p className="mt-2.5 border-t border-[var(--border)] pt-2 text-[11px] leading-snug text-[var(--text-muted)]">
-                <span className="font-semibold text-[var(--ink)]">Top: </span>
-                {p.drivers[0].label}
-                {p.drivers[0].detail ? ` — ${p.drivers[0].detail.slice(0, 110)}` : ""}
-              </p>
-            )}
-          </div>,
-          document.body,
-        )}
+      {open && <BreakdownPopup position={p} onClose={() => setOpen(false)} />}
     </>
   );
 }
