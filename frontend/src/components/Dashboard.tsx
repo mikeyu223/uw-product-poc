@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { fetchBook, fetchHealth, fetchMethodology, fetchProbe, type CacheMeta } from "@/lib/api";
 import type { FamilyScore, Methodology, PortfolioSummary, Position, ProbeResponse } from "@/lib/types";
@@ -395,8 +395,8 @@ export function Dashboard() {
 
             {mainTab === "positions" && (
               <>
-                {/* Mobile cards */}
-                <div className="space-y-2 md:hidden">
+                {/* Mobile / tablet cards — tap to expand (no floating hover card) */}
+                <div className="space-y-2 lg:hidden">
                   {loading && positions.length === 0 && (
                     <div className="flex flex-col items-center gap-3 rounded-xl border border-[var(--border)] bg-white px-4 py-12 text-[var(--text-muted)]">
                       <Spinner size={28} />
@@ -417,8 +417,8 @@ export function Dashboard() {
                   ))}
                 </div>
 
-                {/* Desktop table */}
-                <div className="hidden overflow-visible rounded-xl border border-[var(--border)] bg-white md:block">
+                {/* Desktop table — hover card follows cursor */}
+                <div className="hidden overflow-visible rounded-xl border border-[var(--border)] bg-white lg:block">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[640px] text-left text-sm">
                       <thead className="border-b border-[var(--border)] bg-white text-[11px] uppercase tracking-[0.06em] text-[var(--text)]">
@@ -856,6 +856,27 @@ function PositionMobileCard({
   );
 }
 
+function canUseHoverCard() {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia("(hover: hover) and (pointer: fine)").matches &&
+    window.matchMedia("(min-width: 1024px)").matches
+  );
+}
+
+function placeBreakdownNearCursor(clientX: number, clientY: number) {
+  const width = Math.min(320, window.innerWidth - 24);
+  const height = 320;
+  const gap = 16;
+  let left = clientX + gap;
+  let top = clientY + gap;
+  if (left + width > window.innerWidth - 12) left = clientX - width - gap;
+  if (top + height > window.innerHeight - 12) top = clientY - height - gap;
+  left = Math.max(12, Math.min(left, window.innerWidth - width - 12));
+  top = Math.max(12, Math.min(top, window.innerHeight - height - 12));
+  return { top, left, width };
+}
+
 function PositionTableRow({
   position: p,
   active,
@@ -867,10 +888,9 @@ function PositionTableRow({
   dimmed: boolean;
   onSelect: () => void;
 }) {
-  const rowRef = useRef<HTMLTableRowElement>(null);
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 320 });
 
   function clearLeave() {
     if (leaveTimer.current) {
@@ -879,32 +899,16 @@ function PositionTableRow({
     }
   }
 
-  function show() {
-    // Hover cards only on fine pointers — mobile uses tap-to-expand cards.
-    if (typeof window !== "undefined" && !window.matchMedia("(hover: hover)").matches) {
-      return;
-    }
+  function onRowMouseMove(e: MouseEvent<HTMLTableRowElement>) {
+    if (!canUseHoverCard()) return;
     clearLeave();
-    const el = rowRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const width = Math.min(320, window.innerWidth - 24);
-    const left = Math.min(
-      Math.max(12, r.right - width),
-      window.innerWidth - width - 12,
-    );
-    const estimatedH = 280;
-    const top =
-      r.bottom + 8 + estimatedH > window.innerHeight
-        ? Math.max(12, r.top - estimatedH - 8)
-        : r.bottom + 8;
-    setCoords({ top, left });
+    setCoords(placeBreakdownNearCursor(e.clientX, e.clientY));
     setOpen(true);
   }
 
   function scheduleHide() {
     clearLeave();
-    leaveTimer.current = setTimeout(() => setOpen(false), 120);
+    leaveTimer.current = setTimeout(() => setOpen(false), 100);
   }
 
   useEffect(() => () => clearLeave(), []);
@@ -914,9 +918,9 @@ function PositionTableRow({
   return (
     <>
       <tr
-        ref={rowRef}
         onClick={onSelect}
-        onMouseEnter={show}
+        onMouseEnter={onRowMouseMove}
+        onMouseMove={onRowMouseMove}
         onMouseLeave={scheduleHide}
         className={`cursor-pointer border-b border-[var(--border)] last:border-0 ${
           active ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--bg-soft)]"
@@ -967,8 +971,8 @@ function PositionTableRow({
             role="tooltip"
             onMouseEnter={clearLeave}
             onMouseLeave={scheduleHide}
-            className="fixed z-[80] w-[320px] rounded-xl border border-[var(--border)] bg-white p-3.5 shadow-[0_12px_40px_rgba(15,15,20,0.12)]"
-            style={{ top: coords.top, left: coords.left }}
+            className="pointer-events-none fixed z-[80] max-h-[min(360px,calc(100vh-24px))] overflow-auto rounded-xl border border-[var(--border)] bg-white p-3.5 shadow-[0_12px_40px_rgba(15,15,20,0.12)]"
+            style={{ top: coords.top, left: coords.left, width: coords.width }}
           >
             <div className="mb-2.5 flex items-start justify-between gap-2">
               <div>
