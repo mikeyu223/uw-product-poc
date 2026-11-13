@@ -11,8 +11,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/risk_watcher /app/risk_watcher
-ENV PORT=8080
-ENV BIND_ADDR=0.0.0.0:8080
+# Vercel sets PORT at runtime (often 80) and probes that port — do not hardcode BIND_ADDR.
 ENV RUST_LOG=risk_watcher=info,tower_http=info
+ENV PORT=8080
 EXPOSE 8080
 CMD ["/app/risk_watcher"]
