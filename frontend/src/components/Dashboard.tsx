@@ -147,17 +147,17 @@ export function Dashboard() {
   }, [peak, summary]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--bg-soft)]">
+    <div className="flex h-[100dvh] overflow-hidden bg-[var(--bg-soft)]">
       <Sidebar backendOk={backendOk} />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col pb-[4.25rem] md:pb-0">
         {/* Top nav — Public-style */}
-        <header className="flex shrink-0 items-center gap-6 border-b border-[var(--border)] bg-white px-5 py-3">
-          <div className="text-[20px] font-extrabold tracking-tight text-[var(--ink)]">
+        <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-white px-3 py-2.5 sm:gap-4 sm:px-5 sm:py-3">
+          <div className="shrink-0 text-[17px] font-extrabold tracking-tight text-[var(--ink)] sm:text-[20px]">
             risk<span className="text-[var(--accent)]">watcher</span>
           </div>
 
-          <div className="relative hidden min-w-[220px] max-w-md flex-1 md:block">
+          <div className="relative hidden min-w-0 max-w-md flex-1 md:block">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -173,17 +173,17 @@ export function Dashboard() {
             <span className="hover:text-[var(--ink)]">GEX</span>
           </nav>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => void load(true)}
               disabled={loading || refreshing}
-              className="inline-flex items-center rounded-full border border-[var(--border)] px-3.5 py-1.5 text-[13px] font-medium text-[var(--text)] hover:bg-[var(--bg-soft)] disabled:opacity-50"
+              className="inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--text)] hover:bg-[var(--bg-soft)] disabled:opacity-50 sm:px-3.5 sm:text-[13px]"
             >
               {(loading || refreshing) && <Spinner size={12} className="mr-1.5" />}
-              {refreshing ? "Refreshing…" : "Refresh"}
+              {refreshing ? "…" : "Refresh"}
             </button>
             <span
-              className={`rounded-full px-3 py-1.5 text-[12px] font-semibold ${
+              className={`rounded-full px-2 py-1.5 text-[11px] font-semibold sm:px-3 sm:text-[12px] ${
                 live
                   ? "bg-emerald-50 text-emerald-700"
                   : "bg-amber-50 text-amber-700"
@@ -199,14 +199,24 @@ export function Dashboard() {
                   ? "…"
                   : "Offline"}
             </span>
-            <button className="rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] font-semibold text-white">
+            <button className="hidden rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] font-semibold text-white sm:inline-flex">
               Brokerage
             </button>
           </div>
         </header>
 
+        {/* Mobile search */}
+        <div className="shrink-0 border-b border-[var(--border)] bg-white px-3 py-2 md:hidden">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search assets"
+            className="w-full rounded-full border border-[var(--border)] bg-[var(--bg-soft)] px-4 py-2 text-sm outline-none placeholder:text-[var(--text-dim)] focus:border-[var(--accent)]"
+          />
+        </div>
+
         {/* Ticker strip */}
-        <div className="flex shrink-0 items-center gap-6 overflow-x-auto border-b border-[var(--border)] bg-white px-5 py-2.5 text-[13px]">
+        <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b border-[var(--border)] bg-white px-3 py-2.5 text-[13px] [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-6 sm:px-5 [&::-webkit-scrollbar]:hidden">
           {positions.length === 0 && (
             <span className="flex items-center gap-2 text-[var(--text-dim)]">
               {loading ? (
@@ -253,13 +263,13 @@ export function Dashboard() {
         </div>
 
         {topWhy && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-orange-200/80 bg-[#fff7f0] px-5 py-2 text-[13px]">
-            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-orange-700">
+          <div className="flex shrink-0 items-center gap-2 border-b border-orange-200/80 bg-[#fff7f0] px-3 py-2 text-[12px] sm:px-5 sm:text-[13px]">
+            <span className="shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-orange-700">
               Top driver
             </span>
             <button
               type="button"
-              className="truncate text-left font-medium text-[var(--ink)] hover:underline"
+              className="min-w-0 truncate text-left font-medium text-[var(--ink)] hover:underline"
               onClick={() => {
                 if (peak) {
                   setSelectedId(peak.id);
@@ -275,14 +285,14 @@ export function Dashboard() {
         )}
 
         {error && (
-          <div className="shrink-0 border-b border-rose-200 bg-rose-50 px-5 py-2 text-sm text-rose-700">
+          <div className="shrink-0 border-b border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 sm:px-5">
             {error}
           </div>
         )}
 
         {/* Main + right inbox */}
         <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <main className="min-h-0 overflow-auto px-5 py-6 md:px-8">
+          <main className="min-h-0 overflow-auto px-3 py-4 sm:px-5 sm:py-6 md:px-8">
             <div className="mb-1 flex flex-wrap items-end gap-x-4 gap-y-2">
               <button
                 type="button"
@@ -324,11 +334,10 @@ export function Dashboard() {
                     Sample book
                   </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-[var(--text-muted)]">
+                <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-[var(--text-muted)] sm:text-[13px]">
                   <span className="rounded-full border border-[var(--border)] bg-white px-2.5 py-0.5 font-medium text-[var(--ink)]">
                     {bookHealth.count} Positions
                   </span>
-                  <span className="text-[var(--text-dim)]">|</span>
                   <span
                     className={`rounded-full border px-2.5 py-0.5 font-medium ${
                       bookHealth.critical > 0
@@ -338,7 +347,6 @@ export function Dashboard() {
                   >
                     {bookHealth.critical} Critical
                   </span>
-                  <span className="text-[var(--text-dim)]">|</span>
                   <span
                     className={`rounded-full border px-2.5 py-0.5 font-medium ${
                       bookHealth.elevated > 0
@@ -349,18 +357,15 @@ export function Dashboard() {
                     {bookHealth.elevated} Elevated
                   </span>
                   {summary?.avg_risk_score != null && (
-                    <>
-                      <span className="text-[var(--text-dim)]">·</span>
-                      <span className="text-[12px] text-[var(--text-dim)]">
-                        book avg {summary.avg_risk_score}
-                      </span>
-                    </>
+                    <span className="text-[12px] text-[var(--text-dim)]">
+                      · book avg {summary.avg_risk_score}
+                    </span>
                   )}
                 </div>
               </div>
             </div>
 
-            <div className="mb-5 mt-5 flex items-center gap-5 border-b border-[var(--border)] text-[14px] font-medium">
+            <div className="mb-4 mt-4 flex items-center gap-3 overflow-x-auto border-b border-[var(--border)] text-[13px] font-medium sm:mb-5 sm:mt-5 sm:gap-5 sm:text-[14px]">
               {(
                 [
                   ["positions", "Positions"],
@@ -371,7 +376,7 @@ export function Dashboard() {
                 <button
                   key={id}
                   onClick={() => setMainTab(id)}
-                  className={`relative pb-3 ${
+                  className={`relative shrink-0 pb-3 ${
                     mainTab === id
                       ? "text-[var(--ink)]"
                       : "text-[var(--text-muted)] hover:text-[var(--ink)]"
@@ -383,52 +388,77 @@ export function Dashboard() {
                   )}
                 </button>
               ))}
-              <div className="ml-auto pb-3">
+              <div className="ml-auto hidden pb-3 sm:block">
                 <RiskBar score={peak?.score ?? 0} wide />
               </div>
             </div>
 
             {mainTab === "positions" && (
-              <div className="overflow-visible rounded-xl border border-[var(--border)] bg-white">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-left text-sm">
-                    <thead className="border-b border-[var(--border)] bg-white text-[11px] uppercase tracking-[0.06em] text-[var(--text)]">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold">Ticker</th>
-                        <th className="px-3 py-3 font-semibold">Contract</th>
-                        <th className="px-3 py-3 font-semibold">Spot</th>
-                        <th className="px-3 py-3 font-semibold">Risk</th>
-                        <th className="px-3 py-3 font-semibold">Bucket</th>
-                        <th className="px-4 py-3 font-semibold">Top Driver</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {loading && positions.length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-16 text-center text-[var(--text-muted)]">
-                            <div className="flex flex-col items-center justify-center gap-3">
-                              <Spinner size={28} />
-                              <span>Scoring from live GEX + flow…</span>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      {filtered.map((p) => (
-                        <PositionTableRow
-                          key={p.id}
-                          position={p}
-                          active={selected?.id === p.id}
-                          dimmed={refreshing}
-                          onSelect={() => {
-                            setSelectedId(p.id);
-                            setDetailTab("drivers");
-                          }}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
+              <>
+                {/* Mobile cards */}
+                <div className="space-y-2 md:hidden">
+                  {loading && positions.length === 0 && (
+                    <div className="flex flex-col items-center gap-3 rounded-xl border border-[var(--border)] bg-white px-4 py-12 text-[var(--text-muted)]">
+                      <Spinner size={28} />
+                      <span>Scoring from live GEX + flow…</span>
+                    </div>
+                  )}
+                  {filtered.map((p) => (
+                    <PositionMobileCard
+                      key={p.id}
+                      position={p}
+                      active={selected?.id === p.id}
+                      dimmed={refreshing}
+                      onSelect={() => {
+                        setSelectedId(p.id);
+                        setDetailTab("drivers");
+                      }}
+                    />
+                  ))}
                 </div>
-              </div>
+
+                {/* Desktop table */}
+                <div className="hidden overflow-visible rounded-xl border border-[var(--border)] bg-white md:block">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] text-left text-sm">
+                      <thead className="border-b border-[var(--border)] bg-white text-[11px] uppercase tracking-[0.06em] text-[var(--text)]">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold">Ticker</th>
+                          <th className="px-3 py-3 font-semibold">Contract</th>
+                          <th className="px-3 py-3 font-semibold">Spot</th>
+                          <th className="px-3 py-3 font-semibold">Risk</th>
+                          <th className="px-3 py-3 font-semibold">Bucket</th>
+                          <th className="px-4 py-3 font-semibold">Top Driver</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loading && positions.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-16 text-center text-[var(--text-muted)]">
+                              <div className="flex flex-col items-center justify-center gap-3">
+                                <Spinner size={28} />
+                                <span>Scoring from live GEX + flow…</span>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        {filtered.map((p) => (
+                          <PositionTableRow
+                            key={p.id}
+                            position={p}
+                            active={selected?.id === p.id}
+                            dimmed={refreshing}
+                            onSelect={() => {
+                              setSelectedId(p.id);
+                              setDetailTab("drivers");
+                            }}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
             )}
 
             {mainTab === "mix" && (
@@ -730,6 +760,102 @@ function familyRowsFor(p: Position): FamilyScore[] {
   return rows.filter((r) => r.points > 0.05);
 }
 
+function PositionMobileCard({
+  position: p,
+  active,
+  dimmed,
+  onSelect,
+}: {
+  position: Position;
+  active: boolean;
+  dimmed: boolean;
+  onSelect: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const families = familyRowsFor(p);
+
+  return (
+    <div
+      className={`rounded-xl border bg-white p-3.5 ${
+        active ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--border)]"
+      } ${dimmed ? "opacity-80" : ""}`}
+    >
+      <button
+        type="button"
+        className="flex w-full items-start justify-between gap-3 text-left"
+        onClick={() => {
+          onSelect();
+          setExpanded((v) => !v);
+        }}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[16px] font-bold text-[var(--ink)]">{p.ticker}</span>
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${bucketBg(p.bucket)} ${bucketColor(p.bucket)}`}
+            >
+              {bucketLabel(p.bucket)}
+            </span>
+          </div>
+          <div className="mt-1 mono text-[12px]">
+            <span className={p.option_type === "put" ? "text-[var(--put)]" : "text-[var(--call)]"}>
+              {p.option_type}
+            </span>{" "}
+            {p.strike}
+            <span className="text-[var(--text-dim)]"> · {p.expiry.slice(5)}</span>
+            <span className="text-[var(--text-dim)]">
+              {" "}
+              · spot {p.underlying_price ? p.underlying_price.toFixed(2) : "—"}
+            </span>
+          </div>
+          <p className="mt-1.5 line-clamp-2 text-[12px] text-[var(--text-muted)]">
+            {p.drivers[0]?.label ?? "—"}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <div
+            className="mono text-[22px] font-extrabold leading-none"
+            style={{ color: scoreBarHex(p.score) }}
+          >
+            {p.score}
+          </div>
+          <div className="mt-2 w-16">
+            <RiskBar score={p.score} wide />
+          </div>
+        </div>
+      </button>
+
+      {expanded && families.length > 0 && (
+        <ul className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+          {families.map((row) => {
+            const pct = Math.min(100, (row.points / row.max_points) * 100);
+            return (
+              <li key={row.family}>
+                <div className="mb-0.5 flex justify-between gap-2 text-[11px]">
+                  <span className="truncate text-[var(--text-muted)]">{row.label}</span>
+                  <span className="mono shrink-0 font-semibold text-[var(--ink)]">
+                    {row.points.toFixed(1)}
+                    <span className="text-[var(--text-dim)]">/{row.max_points}</span>
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-soft)]">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${pct}%`,
+                      background: scoreBarHex((row.points / row.max_points) * 100),
+                    }}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function PositionTableRow({
   position: p,
   active,
@@ -754,11 +880,15 @@ function PositionTableRow({
   }
 
   function show() {
+    // Hover cards only on fine pointers — mobile uses tap-to-expand cards.
+    if (typeof window !== "undefined" && !window.matchMedia("(hover: hover)").matches) {
+      return;
+    }
     clearLeave();
     const el = rowRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const width = 320;
+    const width = Math.min(320, window.innerWidth - 24);
     const left = Math.min(
       Math.max(12, r.right - width),
       window.innerWidth - width - 12,
