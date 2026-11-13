@@ -25,7 +25,14 @@ impl Config {
         let uw_base_url = env::var("UW_BASE_URL")
             .unwrap_or_else(|_| "https://api.unusualwhales.com".to_string());
 
-        let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+        // Cloud hosts (Fly/Railway/Render) inject PORT; BIND_ADDR wins when set.
+        let bind_addr = if let Ok(addr) = env::var("BIND_ADDR") {
+            addr
+        } else if let Ok(port) = env::var("PORT") {
+            format!("0.0.0.0:{port}")
+        } else {
+            "127.0.0.1:8080".to_string()
+        };
 
         Ok(Self {
             uw_api_key,

@@ -1,6 +1,13 @@
 import type { Methodology, PortfolioSummary, Position, ProbeResponse } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8080";
+/**
+ * Browser calls same-origin paths in production (Next rewrites → Rust backend).
+ * Locally, hit the Axum server directly unless NEXT_PUBLIC_API_URL is set.
+ */
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:8080");
+
 
 export interface CacheMeta {
   hit: boolean;

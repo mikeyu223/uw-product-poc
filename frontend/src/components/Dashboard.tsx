@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { fetchBook, fetchHealth, fetchMethodology, fetchProbe, type CacheMeta } from "@/lib/api";
-import type { Methodology, PortfolioSummary, Position, ProbeResponse } from "@/lib/types";
+import type { FamilyScore, Methodology, PortfolioSummary, Position, ProbeResponse } from "@/lib/types";
 import {
   bucketBg,
   bucketColor,
@@ -110,7 +111,39 @@ export function Dashboard() {
   }, [selected?.ticker]);
 
   const live = summary?.mode === "live_uw";
-  const avg = summary?.avg_risk_score ?? 0;
+
+  const peak = useMemo(() => {
+    if (positions.length === 0) return null;
+    return positions.reduce((worst, p) => (p.score > worst.score ? p : worst), positions[0]);
+  }, [positions]);
+
+  const bookHealth = useMemo(() => {
+    const critical = positions.filter((p) => p.bucket === "high").length;
+    const elevated = positions.filter((p) => p.bucket === "elevated").length;
+    return {
+      count: positions.length,
+      critical,
+      elevated,
+    };
+  }, [positions]);
+
+  const topWhy = useMemo(() => {
+    const fromPeak = peak?.drivers?.[0];
+    if (fromPeak) {
+      return {
+        ticker: peak.ticker,
+        label: fromPeak.label,
+      };
+    }
+    const fromSummary = summary?.top_drivers?.[0];
+    if (fromSummary) {
+      return {
+        ticker: fromSummary.ticker ?? "",
+        label: fromSummary.label,
+      };
+    }
+    return null;
+  }, [peak, summary]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg-soft)]">
@@ -177,28 +210,60 @@ export function Dashboard() {
               {loading ? "Loading book…" : "No positions"}
             </span>
           )}
-          {positions.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => {
-                setSelectedId(p.id);
-                setDetailTab("drivers");
-              }}
-              className="flex shrink-0 items-center gap-2 whitespace-nowrap"
-            >
-              <span className="font-semibold text-[var(--ink)]">{p.ticker}</span>
-              <span
-                className="mono text-[12px] font-medium"
-                style={{ color: scoreBarHex(p.score) }}
+          {positions.map((p) => {
+            const isPeak = peak?.id === p.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => {
+                  setSelectedId(p.id);
+                  setDetailTab("drivers");
+                }}
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-2 py-0.5 ${
+                  isPeak ? "bg-orange-50 ring-1 ring-orange-200" : ""
+                }`}
               >
-                {p.score}
-              </span>
-              <span className={`text-[11px] ${bucketColor(p.bucket)}`}>
-                {bucketLabel(p.bucket)}
-              </span>
-            </button>
-          ))}
+                <span className="font-semibold text-[var(--ink)]">{p.ticker}</span>
+                <span
+                  className="mono text-[12px] font-medium"
+                  style={{ color: scoreBarHex(p.score) }}
+                >
+                  {p.score}
+                </span>
+                <span className={`text-[11px] ${bucketColor(p.bucket)}`}>
+                  {bucketLabel(p.bucket)}
+                </span>
+                {isPeak && (
+                  <span className="text-[9px] font-bold uppercase tracking-wide text-orange-600">
+                    Peak
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
+
+        {topWhy && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-orange-200/80 bg-[#fff7f0] px-5 py-2 text-[13px]">
+            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-orange-700">
+              Top driver
+            </span>
+            <button
+              type="button"
+              className="truncate text-left font-medium text-[var(--ink)] hover:underline"
+              onClick={() => {
+                if (peak) {
+                  setSelectedId(peak.id);
+                  setDetailTab("drivers");
+                  setMainTab("positions");
+                }
+              }}
+            >
+              {topWhy.ticker ? `${topWhy.ticker} — ` : ""}
+              {topWhy.label}
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="shrink-0 border-b border-rose-200 bg-rose-50 px-5 py-2 text-sm text-rose-700">
@@ -209,23 +274,84 @@ export function Dashboard() {
         {/* Main + right inbox */}
         <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
           <main className="min-h-0 overflow-auto px-5 py-6 md:px-8">
-            <div className="mb-1 flex flex-wrap items-center gap-3">
-              <h1
-                className="text-[44px] font-extrabold leading-none tracking-tight tabular-nums md:text-[56px]"
-                style={{ color: summary ? scoreBarHex(avg) : "var(--ink)" }}
+            <div className="mb-1 flex flex-wrap items-end gap-x-4 gap-y-2">
+              <button
+                type="button"
+                disabled={!peak}
+                onClick={() => {
+                  if (!peak) return;
+                  setSelectedId(peak.id);
+                  setDetailTab("drivers");
+                  setMainTab("positions");
+                }}
+                className="text-left disabled:cursor-default"
               >
-                {summary ? avg : loading ? "…" : "—"}
-              </h1>
-              <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-[12px] font-semibold text-[var(--accent)]">
-                Sample book
-              </span>
+                <h1
+                  className="text-[44px] font-extrabold leading-none tracking-tight tabular-nums md:text-[56px]"
+                  style={{
+                    color: peak ? scoreBarHex(peak.score) : "var(--ink)",
+                  }}
+                >
+                  {peak ? peak.score : loading ? "…" : "—"}
+                </h1>
+              </button>
+              <div className="mb-1.5 flex flex-col gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[15px] font-bold text-[var(--ink)]">
+                    Peak Hazard
+                    {peak ? (
+                      <>
+                        :{" "}
+                        <span style={{ color: scoreBarHex(peak.score) }}>
+                          {peak.ticker}
+                        </span>{" "}
+                        <span className={`${bucketColor(peak.bucket)}`}>
+                          ({bucketLabel(peak.bucket)})
+                        </span>
+                      </>
+                    ) : null}
+                  </span>
+                  <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)]">
+                    Sample book
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-[var(--text-muted)]">
+                  <span className="rounded-full border border-[var(--border)] bg-white px-2.5 py-0.5 font-medium text-[var(--ink)]">
+                    {bookHealth.count} Positions
+                  </span>
+                  <span className="text-[var(--text-dim)]">|</span>
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 font-medium ${
+                      bookHealth.critical > 0
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : "border-[var(--border)] bg-white text-[var(--ink)]"
+                    }`}
+                  >
+                    {bookHealth.critical} Critical
+                  </span>
+                  <span className="text-[var(--text-dim)]">|</span>
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 font-medium ${
+                      bookHealth.elevated > 0
+                        ? "border-orange-200 bg-orange-50 text-orange-700"
+                        : "border-[var(--border)] bg-white text-[var(--ink)]"
+                    }`}
+                  >
+                    {bookHealth.elevated} Elevated
+                  </span>
+                  {summary?.avg_risk_score != null && (
+                    <>
+                      <span className="text-[var(--text-dim)]">·</span>
+                      <span className="text-[12px] text-[var(--text-dim)]">
+                        book avg {summary.avg_risk_score}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
-            <p className="mb-5 text-[14px] text-[var(--text-muted)]">
-              Avg portfolio risk · {summary?.bucket_label ?? "—"} ·{" "}
-              {summary ? `${summary.elevated_or_high} elevated+` : "—"} · max 100
-            </p>
 
-            <div className="mb-5 flex items-center gap-5 border-b border-[var(--border)] text-[14px] font-medium">
+            <div className="mb-5 mt-5 flex items-center gap-5 border-b border-[var(--border)] text-[14px] font-medium">
               {(
                 [
                   ["positions", "Positions"],
@@ -249,90 +375,47 @@ export function Dashboard() {
                 </button>
               ))}
               <div className="ml-auto pb-3">
-                <RiskBar score={avg || 0} wide />
+                <RiskBar score={peak?.score ?? 0} wide />
               </div>
             </div>
 
             {mainTab === "positions" && (
-              <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-white">
-                <table className="w-full min-w-[640px] text-left text-sm">
-                  <thead className="bg-[var(--bg-soft)] text-[11px] uppercase tracking-[0.06em] text-[var(--text-dim)]">
-                    <tr className="border-b border-[var(--border)]">
-                      <th className="px-4 py-3 font-medium">Ticker</th>
-                      <th className="px-3 py-3 font-medium">Contract</th>
-                      <th className="px-3 py-3 font-medium">Spot</th>
-                      <th className="px-3 py-3 font-medium">Risk</th>
-                      <th className="px-3 py-3 font-medium">Bucket</th>
-                      <th className="px-4 py-3 font-medium">Top Driver</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading && positions.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-16 text-center text-[var(--text-muted)]">
-                          Scoring from live GEX + flow…
-                        </td>
+              <div className="overflow-visible rounded-xl border border-[var(--border)] bg-white">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <thead className="bg-[var(--bg-soft)] text-[11px] uppercase tracking-[0.06em] text-[var(--text-dim)]">
+                      <tr className="border-b border-[var(--border)]">
+                        <th className="px-4 py-3 font-medium">Ticker</th>
+                        <th className="px-3 py-3 font-medium">Contract</th>
+                        <th className="px-3 py-3 font-medium">Spot</th>
+                        <th className="px-3 py-3 font-medium">Risk</th>
+                        <th className="px-3 py-3 font-medium">Bucket</th>
+                        <th className="px-4 py-3 font-medium">Top Driver</th>
                       </tr>
-                    )}
-                    {filtered.map((p) => {
-                      const active = selected?.id === p.id;
-                      return (
-                        <tr
+                    </thead>
+                    <tbody>
+                      {loading && positions.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-16 text-center text-[var(--text-muted)]">
+                            Scoring from live GEX + flow…
+                          </td>
+                        </tr>
+                      )}
+                      {filtered.map((p) => (
+                        <PositionTableRow
                           key={p.id}
-                          onClick={() => {
+                          position={p}
+                          active={selected?.id === p.id}
+                          dimmed={refreshing}
+                          onSelect={() => {
                             setSelectedId(p.id);
                             setDetailTab("drivers");
                           }}
-                          className={`cursor-pointer border-b border-[var(--border)] last:border-0 ${
-                            active ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--bg-soft)]"
-                          } ${refreshing ? "opacity-80" : ""}`}
-                        >
-                          <td className="px-4 py-3.5">
-                            <span className="font-semibold text-[var(--ink)]">{p.ticker}</span>
-                            <div className="mono text-[11px] text-[var(--text-dim)]">
-                              Δ {p.delta.toFixed(2)} · Γ {p.gamma.toFixed(3)}
-                            </div>
-                          </td>
-                          <td className="px-3 py-3.5 mono text-[13px]">
-                            <span
-                              className={
-                                p.option_type === "put" ? "text-[var(--put)]" : "text-[var(--call)]"
-                              }
-                            >
-                              {p.option_type}
-                            </span>{" "}
-                            {p.strike}
-                            <span className="text-[var(--text-dim)]"> · {p.expiry.slice(5)}</span>
-                          </td>
-                          <td className="px-3 py-3.5 mono text-[13px] text-[var(--text-muted)]">
-                            {p.underlying_price ? p.underlying_price.toFixed(2) : "—"}
-                          </td>
-                          <td className="px-3 py-3.5">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className="mono w-6 text-right text-sm font-bold"
-                                style={{ color: scoreBarHex(p.score) }}
-                              >
-                                {p.score}
-                              </span>
-                              <RiskBar score={p.score} />
-                            </div>
-                          </td>
-                          <td className="px-3 py-3.5">
-                            <span
-                              className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${bucketBg(p.bucket)} ${bucketColor(p.bucket)}`}
-                            >
-                              {bucketLabel(p.bucket)}
-                            </span>
-                          </td>
-                          <td className="max-w-[220px] truncate px-4 py-3.5 text-[13px] text-[var(--text-muted)]">
-                            {p.drivers[0]?.label ?? "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
@@ -622,6 +705,190 @@ export function Dashboard() {
         </div>
       </div>
     </div>
+  );
+}
+
+function familyRowsFor(p: Position): FamilyScore[] {
+  if (p.family_scores && p.family_scores.length > 0) return p.family_scores;
+  return FALLBACK_FAMILIES.map((f) => ({
+    family: f.family,
+    label: f.label,
+    points:
+      (p.breakdown?.[f.family as keyof NonNullable<Position["breakdown"]>] as number) ?? 0,
+    max_points: f.max_points,
+  }));
+}
+
+function PositionTableRow({
+  position: p,
+  active,
+  dimmed,
+  onSelect,
+}: {
+  position: Position;
+  active: boolean;
+  dimmed: boolean;
+  onSelect: () => void;
+}) {
+  const rowRef = useRef<HTMLTableRowElement>(null);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+
+  function clearLeave() {
+    if (leaveTimer.current) {
+      clearTimeout(leaveTimer.current);
+      leaveTimer.current = null;
+    }
+  }
+
+  function show() {
+    clearLeave();
+    const el = rowRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = 320;
+    const left = Math.min(
+      Math.max(12, r.right - width),
+      window.innerWidth - width - 12,
+    );
+    const estimatedH = 280;
+    const top =
+      r.bottom + 8 + estimatedH > window.innerHeight
+        ? Math.max(12, r.top - estimatedH - 8)
+        : r.bottom + 8;
+    setCoords({ top, left });
+    setOpen(true);
+  }
+
+  function scheduleHide() {
+    clearLeave();
+    leaveTimer.current = setTimeout(() => setOpen(false), 120);
+  }
+
+  useEffect(() => () => clearLeave(), []);
+
+  const families = familyRowsFor(p);
+
+  return (
+    <>
+      <tr
+        ref={rowRef}
+        onClick={onSelect}
+        onMouseEnter={show}
+        onMouseLeave={scheduleHide}
+        className={`cursor-pointer border-b border-[var(--border)] last:border-0 ${
+          active ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--bg-soft)]"
+        } ${dimmed ? "opacity-80" : ""}`}
+      >
+        <td className="px-4 py-3.5">
+          <span className="font-semibold text-[var(--ink)]">{p.ticker}</span>
+          <div className="mono text-[11px] text-[var(--text-dim)]">
+            Δ {p.delta.toFixed(2)} · Γ {p.gamma.toFixed(3)}
+          </div>
+        </td>
+        <td className="px-3 py-3.5 mono text-[13px]">
+          <span className={p.option_type === "put" ? "text-[var(--put)]" : "text-[var(--call)]"}>
+            {p.option_type}
+          </span>{" "}
+          {p.strike}
+          <span className="text-[var(--text-dim)]"> · {p.expiry.slice(5)}</span>
+        </td>
+        <td className="px-3 py-3.5 mono text-[13px] text-[var(--text-muted)]">
+          {p.underlying_price ? p.underlying_price.toFixed(2) : "—"}
+        </td>
+        <td className="px-3 py-3.5">
+          <div className="flex items-center gap-2">
+            <span
+              className="mono w-6 text-right text-sm font-bold"
+              style={{ color: scoreBarHex(p.score) }}
+            >
+              {p.score}
+            </span>
+            <RiskBar score={p.score} />
+          </div>
+        </td>
+        <td className="px-3 py-3.5">
+          <span
+            className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${bucketBg(p.bucket)} ${bucketColor(p.bucket)}`}
+          >
+            {bucketLabel(p.bucket)}
+          </span>
+        </td>
+        <td className="max-w-[220px] truncate px-4 py-3.5 text-[13px] text-[var(--text-muted)]">
+          {p.drivers[0]?.label ?? "—"}
+        </td>
+      </tr>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            role="tooltip"
+            onMouseEnter={clearLeave}
+            onMouseLeave={scheduleHide}
+            className="fixed z-[80] w-[320px] rounded-xl border border-[var(--border)] bg-white p-3.5 shadow-[0_12px_40px_rgba(15,15,20,0.12)]"
+            style={{ top: coords.top, left: coords.left }}
+          >
+            <div className="mb-2.5 flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[14px] font-bold text-[var(--ink)]">
+                  {p.ticker}{" "}
+                  <span className="font-medium text-[var(--text-muted)]">breakdown</span>
+                </div>
+                <div className="mono text-[11px] text-[var(--text-dim)]">
+                  {p.option_type} {p.strike} · {bucketLabel(p.bucket)}
+                </div>
+              </div>
+              <div className="text-right">
+                <div
+                  className="mono text-[20px] font-extrabold leading-none"
+                  style={{ color: scoreBarHex(p.score) }}
+                >
+                  {p.score}
+                </div>
+                <div className="mono text-[10px] text-[var(--text-dim)]">
+                  / {p.score_max ?? 100}
+                </div>
+              </div>
+            </div>
+            <ul className="space-y-2">
+              {families.map((row) => {
+                const pct = Math.min(100, (row.points / row.max_points) * 100);
+                return (
+                  <li key={row.family}>
+                    <div className="mb-0.5 flex justify-between gap-2 text-[11px]">
+                      <span className="truncate text-[var(--text-muted)]">{row.label}</span>
+                      <span className="mono shrink-0 font-semibold text-[var(--ink)]">
+                        {row.points.toFixed(1)}
+                        <span className="font-medium text-[var(--text-dim)]">/{row.max_points}</span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-soft)]">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${pct}%`,
+                          background: row.points <= 0 ? "transparent" : scoreBarHex(
+                            (row.points / row.max_points) * 100,
+                          ),
+                        }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {p.drivers[0] && (
+              <p className="mt-2.5 border-t border-[var(--border)] pt-2 text-[11px] leading-snug text-[var(--text-muted)]">
+                <span className="font-semibold text-[var(--ink)]">Top: </span>
+                {p.drivers[0].label}
+                {p.drivers[0].detail ? ` — ${p.drivers[0].detail.slice(0, 110)}` : ""}
+              </p>
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
