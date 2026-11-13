@@ -760,6 +760,34 @@ function familyRowsFor(p: Position): FamilyScore[] {
   return rows.filter((r) => r.points > 0.05);
 }
 
+function strategyIdeasFor(p: Position): Array<{ title: string; blurb: string; tone: string }> {
+  const isPut = p.option_type === "put";
+  const hot = p.score >= 55;
+  return [
+    {
+      title: hot ? "Trim / hedge size" : "Hold with alert",
+      blurb: hot
+        ? `Scale down ${p.ticker} ${isPut ? "put" : "call"} exposure while dealer gamma stays adverse.`
+        : `Keep the ${p.ticker} book but set a score alert above ${Math.min(99, p.score + 15)}.`,
+      tone: hot ? "border-orange-200 bg-orange-50" : "border-emerald-200 bg-emerald-50",
+    },
+    {
+      title: isPut ? "Roll put down / out" : "Roll call up / out",
+      blurb: isPut
+        ? "Move strike further OTM or push expiry out a week to cut flip / wall conflict."
+        : "Roll to a higher strike or later expiry to reduce vega crush near the walls.",
+      tone: "border-sky-200 bg-sky-50",
+    },
+    {
+      title: "Defined-risk replace",
+      blurb: isPut
+        ? `Swap naked risk for a ${p.ticker} put debit spread into the next catalyst window.`
+        : `Replace with a ${p.ticker} call debit spread so max loss is capped into the event.`,
+      tone: "border-violet-200 bg-violet-50",
+    },
+  ];
+}
+
 function BreakdownPopup({
   position: p,
   onClose,
@@ -768,6 +796,9 @@ function BreakdownPopup({
   onClose: () => void;
 }) {
   const families = familyRowsFor(p);
+  const strategies = strategyIdeasFor(p);
+  const [aiOpen, setAiOpen] = useState(false);
+  const top = p.drivers[0];
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -791,7 +822,7 @@ function BreakdownPopup({
         role="dialog"
         aria-modal="true"
         aria-label={`${p.ticker} breakdown`}
-        className="relative z-[1] max-h-[min(520px,calc(100dvh-24px))] w-full max-w-[360px] overflow-auto rounded-2xl border border-[var(--border)] bg-white p-4 shadow-[0_16px_48px_rgba(15,15,20,0.18)]"
+        className="relative z-[1] max-h-[min(640px,calc(100dvh-24px))] w-full max-w-[380px] overflow-auto rounded-2xl border border-[var(--border)] bg-white p-4 shadow-[0_16px_48px_rgba(15,15,20,0.18)]"
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2">
@@ -853,13 +884,58 @@ function BreakdownPopup({
             );
           })}
         </ul>
-        {p.drivers[0] && (
+        {top && (
           <p className="mt-3 border-t border-[var(--border)] pt-2.5 text-[11px] leading-snug text-[var(--text-muted)]">
             <span className="font-semibold text-[var(--ink)]">Top: </span>
-            {p.drivers[0].label}
-            {p.drivers[0].detail ? ` — ${p.drivers[0].detail.slice(0, 110)}` : ""}
+            {top.label}
+            {top.detail ? ` — ${top.detail.slice(0, 110)}` : ""}
           </p>
         )}
+
+        <div className="mt-3 rounded-xl border border-[var(--accent)]/25 bg-[var(--accent-soft)] p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-[12px] font-bold text-[var(--ink)]">Ask AI</div>
+              <div className="text-[11px] text-[var(--text-muted)]">
+                Explain this score in plain English
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAiOpen((v) => !v)}
+              className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-1.5 text-[11px] font-semibold text-white hover:opacity-90"
+            >
+              {aiOpen ? "Hide" : "Explain"}
+            </button>
+          </div>
+          {aiOpen && (
+            <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--ink)]">
+              {p.ticker} is scoring {p.score} ({bucketLabel(p.bucket)}) mainly from{" "}
+              {top?.label?.toLowerCase() ?? "dealer positioning"}.{" "}
+              {top?.detail
+                ? top.detail.slice(0, 160)
+                : "Negative gamma and nearby walls can amplify moves against this structure."}{" "}
+              Treat this as a demo explanation — wire a real model later.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-3">
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <div className="text-[12px] font-bold text-[var(--ink)]">Strategies to consider</div>
+            <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-dim)]">
+              UI preview
+            </span>
+          </div>
+          <div className="space-y-2">
+            {strategies.map((s) => (
+              <div key={s.title} className={`rounded-xl border px-3 py-2.5 ${s.tone}`}>
+                <div className="text-[12px] font-semibold text-[var(--ink)]">{s.title}</div>
+                <p className="mt-0.5 text-[11px] leading-snug text-[var(--text-muted)]">{s.blurb}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>,
     document.body,
