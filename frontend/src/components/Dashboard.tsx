@@ -177,8 +177,9 @@ export function Dashboard() {
             <button
               onClick={() => void load(true)}
               disabled={loading || refreshing}
-              className="rounded-full border border-[var(--border)] px-3.5 py-1.5 text-[13px] font-medium text-[var(--text)] hover:bg-[var(--bg-soft)] disabled:opacity-50"
+              className="inline-flex items-center rounded-full border border-[var(--border)] px-3.5 py-1.5 text-[13px] font-medium text-[var(--text)] hover:bg-[var(--bg-soft)] disabled:opacity-50"
             >
+              {(loading || refreshing) && <Spinner size={12} className="mr-1.5" />}
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
             <span
@@ -207,8 +208,15 @@ export function Dashboard() {
         {/* Ticker strip */}
         <div className="flex shrink-0 items-center gap-6 overflow-x-auto border-b border-[var(--border)] bg-white px-5 py-2.5 text-[13px]">
           {positions.length === 0 && (
-            <span className="text-[var(--text-dim)]">
-              {loading ? "Loading book…" : "No positions"}
+            <span className="flex items-center gap-2 text-[var(--text-dim)]">
+              {loading ? (
+                <>
+                  <Spinner size={14} />
+                  Loading book…
+                </>
+              ) : (
+                "No positions"
+              )}
             </span>
           )}
           {positions.map((p) => {
@@ -288,12 +296,12 @@ export function Dashboard() {
                 className="text-left disabled:cursor-default"
               >
                 <h1
-                  className="text-[44px] font-extrabold leading-none tracking-tight tabular-nums md:text-[56px]"
+                  className="flex min-h-[56px] items-center text-[44px] font-extrabold leading-none tracking-tight tabular-nums md:text-[56px]"
                   style={{
                     color: peak ? scoreBarHex(peak.score) : "var(--ink)",
                   }}
                 >
-                  {peak ? peak.score : loading ? "…" : "—"}
+                  {peak ? peak.score : loading ? <Spinner size={36} /> : "—"}
                 </h1>
               </button>
               <div className="mb-1.5 flex flex-col gap-1.5">
@@ -384,21 +392,24 @@ export function Dashboard() {
               <div className="overflow-visible rounded-xl border border-[var(--border)] bg-white">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[640px] text-left text-sm">
-                    <thead className="bg-[var(--bg-soft)] text-[11px] uppercase tracking-[0.06em] text-[var(--text-dim)]">
-                      <tr className="border-b border-[var(--border)]">
-                        <th className="px-4 py-3 font-medium">Ticker</th>
-                        <th className="px-3 py-3 font-medium">Contract</th>
-                        <th className="px-3 py-3 font-medium">Spot</th>
-                        <th className="px-3 py-3 font-medium">Risk</th>
-                        <th className="px-3 py-3 font-medium">Bucket</th>
-                        <th className="px-4 py-3 font-medium">Top Driver</th>
+                    <thead className="border-b border-[var(--border)] bg-white text-[11px] uppercase tracking-[0.06em] text-[var(--text)]">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Ticker</th>
+                        <th className="px-3 py-3 font-semibold">Contract</th>
+                        <th className="px-3 py-3 font-semibold">Spot</th>
+                        <th className="px-3 py-3 font-semibold">Risk</th>
+                        <th className="px-3 py-3 font-semibold">Bucket</th>
+                        <th className="px-4 py-3 font-semibold">Top Driver</th>
                       </tr>
                     </thead>
                     <tbody>
                       {loading && positions.length === 0 && (
                         <tr>
                           <td colSpan={6} className="px-4 py-16 text-center text-[var(--text-muted)]">
-                            Scoring from live GEX + flow…
+                            <div className="flex flex-col items-center justify-center gap-3">
+                              <Spinner size={28} />
+                              <span>Scoring from live GEX + flow…</span>
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -631,18 +642,10 @@ export function Dashboard() {
 
                 {detailTab === "breakdown" && (
                   <div className="space-y-3">
-                    {(selected.family_scores && selected.family_scores.length > 0
-                      ? selected.family_scores
-                      : FALLBACK_FAMILIES.map((f) => ({
-                          family: f.family,
-                          label: f.label,
-                          points:
-                            (selected.breakdown?.[
-                              f.family as keyof NonNullable<Position["breakdown"]>
-                            ] as number) ?? 0,
-                          max_points: f.max_points,
-                        }))
-                    ).map((row) => {
+                    {familyRowsFor(selected).length === 0 && (
+                      <p className="text-sm text-[var(--text-muted)]">No active risk families.</p>
+                    )}
+                    {familyRowsFor(selected).map((row) => {
                       const pct = Math.min(100, (row.points / row.max_points) * 100);
                       return (
                         <div key={row.family}>
@@ -658,7 +661,7 @@ export function Dashboard() {
                               className="risk-bar-fill h-full rounded-full"
                               style={{
                                 width: `${pct}%`,
-                                background: row.points <= 0 ? "transparent" : "var(--accent)",
+                                background: "var(--accent)",
                               }}
                             />
                           </div>
@@ -712,15 +715,19 @@ export function Dashboard() {
   );
 }
 
+/** Active families only — 0/max rows (e.g. no earnings) are not “considered.” */
 function familyRowsFor(p: Position): FamilyScore[] {
-  if (p.family_scores && p.family_scores.length > 0) return p.family_scores;
-  return FALLBACK_FAMILIES.map((f) => ({
-    family: f.family,
-    label: f.label,
-    points:
-      (p.breakdown?.[f.family as keyof NonNullable<Position["breakdown"]>] as number) ?? 0,
-    max_points: f.max_points,
-  }));
+  const rows =
+    p.family_scores && p.family_scores.length > 0
+      ? p.family_scores
+      : FALLBACK_FAMILIES.map((f) => ({
+          family: f.family,
+          label: f.label,
+          points:
+            (p.breakdown?.[f.family as keyof NonNullable<Position["breakdown"]>] as number) ?? 0,
+          max_points: f.max_points,
+        }));
+  return rows.filter((r) => r.points > 0.05);
 }
 
 function PositionTableRow({
@@ -893,6 +900,17 @@ function PositionTableRow({
           document.body,
         )}
     </>
+  );
+}
+
+function Spinner({ size = 20, className = "" }: { size?: number; className?: string }) {
+  return (
+    <span
+      className={`spinner ${className}`}
+      style={{ width: size, height: size, borderWidth: Math.max(2, Math.round(size / 10)) }}
+      role="status"
+      aria-label="Loading"
+    />
   );
 }
 

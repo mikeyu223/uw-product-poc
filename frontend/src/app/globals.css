@@ -75,3 +75,18 @@ body {
   transform-origin: left center;
   animation: bar-grow 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  border-radius: 9999px;
+  border-style: solid;
+  border-color: var(--border-strong);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
