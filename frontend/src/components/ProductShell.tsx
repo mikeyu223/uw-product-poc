@@ -2,11 +2,9 @@
 
 import { useState } from "react";
 import { CvdDashboard } from "./CvdDashboard";
-import { EarningsIvPanel } from "./EarningsIvPanel";
 import { JournalPanel } from "./JournalPanel";
-import { SweepClustersPanel } from "./SweepClustersPanel";
 
-type Mode = "tape" | "journal" | "earnings" | "sweeps";
+type Mode = "tape" | "journal";
 
 const MODES: Array<{ id: Mode; label: string; blurb: string }> = [
   {
@@ -18,16 +16,6 @@ const MODES: Array<{ id: Mode; label: string; blurb: string }> = [
     id: "journal",
     label: "Trading Journal",
     blurb: "CSV import · expectancy · TOD heatmap · playbooks",
-  },
-  {
-    id: "earnings",
-    label: "Earnings IV Crush",
-    blurb: "Options-native event vol — data UW already has",
-  },
-  {
-    id: "sweeps",
-    label: "0DTE Sweep Clusters",
-    blurb: "Live Flow, filtered for same-day storms",
   },
 ];
 
@@ -88,8 +76,6 @@ export function ProductShell() {
       <div className="min-h-0 flex-1 overflow-hidden">
         {mode === "tape" && <CvdDashboard embedded />}
         {mode === "journal" && <JournalPanel />}
-        {mode === "earnings" && <EarningsIvPanel />}
-        {mode === "sweeps" && <SweepClustersPanel />}
       </div>
     </div>
   );
