@@ -1,8 +1,10 @@
 use super::error::{UwError, UwResult};
 use super::models::{
-    DarkPoolLevel, FlowAlert, GexLevels, GexSource, GreekExposure, InterpolatedIvPoint,
-    IvRankPoint, MarketTidePoint, OptionContractHistoric, OptionContractTape, RiskReversalPoint,
-    StockState, TickerInfo, UwEnvelope,
+    DarkPoolLevel, FlowAlert, FuturesCandle, FuturesContract, FuturesStats, FuturesTrade,
+    GexLevels, GexSource, GreekExposure, GreekExposureExpiry, GreekExposureStrike,
+    GreekExposureStrikeExpiry, InterpolatedIvPoint, IvRankPoint, MarketTidePoint,
+    OptionContractHistoric, OptionContractTape, RiskReversalPoint, StockState, TickerInfo,
+    UwEnvelope,
 };
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
@@ -68,6 +70,48 @@ impl UwClient {
     /// Latest greek-exposure snapshot (last row of the series), if any.
     pub async fn latest_greek_exposure(&self, ticker: &str) -> UwResult<Option<GreekExposure>> {
         Ok(self.greek_exposure(ticker).await?.into_iter().next_back())
+    }
+
+    /// `GET /api/stock/{ticker}/greek-exposure/expiry`
+    pub async fn greek_exposure_by_expiry(
+        &self,
+        ticker: &str,
+    ) -> UwResult<Vec<GreekExposureExpiry>> {
+        let path = format!(
+            "/api/stock/{}/greek-exposure/expiry",
+            normalize_ticker(ticker)
+        );
+        let env: UwEnvelope<Vec<GreekExposureExpiry>> = self.get_json(&path, &[]).await?;
+        Ok(env.data)
+    }
+
+    /// `GET /api/stock/{ticker}/greek-exposure/strike`
+    pub async fn greek_exposure_by_strike(
+        &self,
+        ticker: &str,
+    ) -> UwResult<Vec<GreekExposureStrike>> {
+        let path = format!(
+            "/api/stock/{}/greek-exposure/strike",
+            normalize_ticker(ticker)
+        );
+        let env: UwEnvelope<Vec<GreekExposureStrike>> = self.get_json(&path, &[]).await?;
+        Ok(env.data)
+    }
+
+    /// `GET /api/stock/{ticker}/greek-exposure/strike-expiry?expiry=`
+    pub async fn greek_exposure_by_strike_expiry(
+        &self,
+        ticker: &str,
+        expiry: &str,
+    ) -> UwResult<Vec<GreekExposureStrikeExpiry>> {
+        let path = format!(
+            "/api/stock/{}/greek-exposure/strike-expiry",
+            normalize_ticker(ticker)
+        );
+        let env: UwEnvelope<Vec<GreekExposureStrikeExpiry>> = self
+            .get_json(&path, &[("expiry", expiry)])
+            .await?;
+        Ok(env.data)
     }
 
     /// `GET /api/stock/{ticker}/flow-alerts`
@@ -166,6 +210,47 @@ impl UwClient {
         let path = format!("/api/option-contract/{occ}/historic");
         let env: OptionContractHistoric = self.get_json(&path, &[]).await?;
         Ok(env.chains.unwrap_or_default().into_iter().next())
+    }
+
+    /// `GET /api/futures/contracts`
+    pub async fn futures_contracts(&self) -> UwResult<Vec<FuturesContract>> {
+        let env: UwEnvelope<Vec<FuturesContract>> =
+            self.get_json("/api/futures/contracts", &[]).await?;
+        Ok(env.data)
+    }
+
+    /// `GET /api/futures/{contract}/trades?limit=`
+    pub async fn futures_trades(&self, contract: &str, limit: u32) -> UwResult<Vec<FuturesTrade>> {
+        let path = format!(
+            "/api/futures/{}/trades",
+            normalize_ticker(contract)
+        );
+        let limit_s = limit.clamp(1, 1000).to_string();
+        let env: UwEnvelope<Vec<FuturesTrade>> = self
+            .get_json(&path, &[("limit", limit_s.as_str())])
+            .await?;
+        Ok(env.data)
+    }
+
+    /// `GET /api/futures/{contract}/stats`
+    pub async fn futures_stats(&self, contract: &str) -> UwResult<FuturesStats> {
+        let path = format!("/api/futures/{}/stats", normalize_ticker(contract));
+        let env: UwEnvelope<FuturesStats> = self.get_json(&path, &[]).await?;
+        Ok(env.data)
+    }
+
+    /// `GET /api/futures/{contract}/candles?interval=&range=`
+    pub async fn futures_candles(
+        &self,
+        contract: &str,
+        interval: &str,
+        range: &str,
+    ) -> UwResult<Vec<FuturesCandle>> {
+        let path = format!("/api/futures/{}/candles", normalize_ticker(contract));
+        let env: UwEnvelope<Vec<FuturesCandle>> = self
+            .get_json(&path, &[("interval", interval), ("range", range)])
+            .await?;
+        Ok(env.data)
     }
 
     /// Lightweight connectivity check: fetch ticker info + GEX levels.

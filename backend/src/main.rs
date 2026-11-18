@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use risk_watcher::api::{self, AppState};
-use risk_watcher::cache::BookCache;
 use risk_watcher::config::Config;
+use risk_watcher::journal::JournalStore;
 use risk_watcher::uw::UwClient;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
@@ -15,16 +15,32 @@ async fn main() -> Result<()> {
     let uw = UwClient::new(&config.uw_base_url, &config.uw_api_key)
         .context("failed to build Unusual Whales client")?;
 
-    // `cargo run -- --probe SPY` — verify API key + endpoints without starting the server.
-    if let Some(ticker) = parse_probe_ticker(&args) {
-        info!(%ticker, "probing Unusual Whales");
-        match uw.probe(&ticker).await {
-            Ok(report) => {
-                println!("{report}");
+    // `cargo run -- --probe ESZ6` — futures CVD smoke check without HTTP.
+    if let Some(contract) = parse_probe_contract(&args) {
+        info!(%contract, "probing futures CVD");
+        match uw.futures_trades(&contract, 100).await {
+            Ok(trades) => {
+                let buy: i64 = trades
+                    .iter()
+                    .filter(|t| t.side.eq_ignore_ascii_case("buy"))
+                    .map(|t| t.size)
+                    .sum();
+                let sell: i64 = trades
+                    .iter()
+                    .filter(|t| t.side.eq_ignore_ascii_case("sell"))
+                    .map(|t| t.size)
+                    .sum();
+                println!(
+                    "futures probe {contract}: trades={} buy={} sell={} net_delta={:+}",
+                    trades.len(),
+                    buy,
+                    sell,
+                    buy - sell
+                );
                 return Ok(());
             }
             Err(err) => {
-                error!(error = %err, "probe failed");
+                error!(error = %err, "futures probe failed");
                 anyhow::bail!(err);
             }
         }
@@ -33,7 +49,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         config: config.clone(),
         uw,
-        book_cache: BookCache::new(),
+        journal: JournalStore::new(),
     };
 
     let app = api::router(state);
@@ -41,7 +57,7 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("bind {}", config.bind_addr))?;
 
-    info!(addr = %config.bind_addr, "risk-watcher listening");
+    info!(addr = %config.bind_addr, "futures-cvd listening");
     axum::serve(listener, app).await.context("server error")?;
     Ok(())
 }
@@ -56,14 +72,14 @@ fn init_tracing() {
         .init();
 }
 
-fn parse_probe_ticker(args: &[String]) -> Option<String> {
+fn parse_probe_contract(args: &[String]) -> Option<String> {
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         if arg == "--probe" {
-            return iter.next().cloned().or(Some("SPY".to_string()));
+            return iter.next().cloned().or(Some("ESZ6".to_string()));
         }
-        if let Some(ticker) = arg.strip_prefix("--probe=") {
-            return Some(ticker.to_string());
+        if let Some(c) = arg.strip_prefix("--probe=") {
+            return Some(c.to_string());
         }
     }
     None

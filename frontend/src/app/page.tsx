@@ -1,5 +1,5 @@
-import { Dashboard } from "@/components/Dashboard";
+import { ProductShell } from "@/components/ProductShell";
 
 export default function Home() {
-  return <Dashboard />;
+  return <ProductShell />;
 }

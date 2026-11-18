@@ -1,17 +1,15 @@
-//! Risk Watcher backend library.
-//!
-//! Modules:
-//! - [`uw`] — Unusual Whales REST client
-//! - [`risk`] — composite risk scoring & explanation (V1)
-//! - [`ingest`] — simulated Kafka-like tick / GEX consumer
-//! - [`api`] — Axum HTTP routes for the dashboard
+//! Unusual Whales product PoCs:
+//! - Futures live tape + CVD + market structure (POC/VAH/VAL, Globex/RTH, OI)
+//! - Earnings IV crush visualizer
+//! - 0DTE sweep cluster filter
+//! - Trading Journal (TradeZella / Tradervue-style retention loop)
 
 pub mod api;
-pub mod cache;
 pub mod config;
-pub mod ingest;
-pub mod risk;
+pub mod cvd;
+pub mod journal;
+pub mod options;
+pub mod structure;
 pub mod uw;
 
-pub use cache::BookCache;
 pub use config::Config;

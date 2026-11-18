@@ -1,70 +1,60 @@
-# Risk Watcher PoC
+# Unusual Whales Product PoCs
 
-Proof-of-concept for **Autonomous Risk Watcher** — a position-aware monitoring service that maps options portfolios to Unusual Whales microstructure data and computes a 0–100 risk score with clear drivers.
+Futures order flow + trading journal (+ earnings IV / 0DTE sweeps) on real Unusual Whales data.
 
-**Full system walkthrough:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+| Mode | What it is |
+|------|------------|
+| **Futures Order Flow** | Live ES/NQ tape, CVD, POC/VA, Globex/RTH, OI, **native Futures GEX heatmap** (SPX→ES / NDX→NQ) |
+| **Trading Journal** | CSV import, expectancy metrics, TOD heatmaps, UW flow/GEX enrichment on fills |
+| **Earnings IV Crush** | Front-end vol into earnings |
+| **0DTE Sweep Clusters** | Same-day sweep storms from Live Flow |
 
-## Layout
+## Public deploy (no visitor API key)
+
+Visitors never paste an Unusual Whales key. The key lives only in **server env** (`UNUSUAL_WHALES_API_KEY`) on the host.
+
+This repo’s `vercel.json` runs:
+
+- **frontend** — Next.js
+- **backend** — Rust container (Dockerfile)
+- Rewrites `/api/*` and `/health` → backend
+
+Set in the Vercel project (Production + Preview):
 
 ```
-risk-watcher-poc/
-├── backend/          # Rust engine (Tokio + Axum + reqwest)
-│   └── src/
-│       ├── uw/       # Unusual Whales API client (live)
-│       ├── risk/     # Live scoring & explanation engine
-│       ├── ingest/   # Simulated Kafka-like consumer (stub)
-│       └── api/      # HTTP API for the dashboard
-├── frontend/         # Next.js dashboard (Public-style light UI)
-├── vercel.json       # Vercel multi-service: frontend + Rust backend together
-└── docs/
-    └── ARCHITECTURE.md
+UNUSUAL_WHALES_API_KEY=<your server-side UUID>
 ```
 
-## Prerequisites
+Do **not** set `NEXT_PUBLIC_API_URL` on Vercel (leave empty so the browser calls same-origin `/api/...` and Vercel rewrites to the backend).
 
-- Rust 1.85+ (`rustup`)
-- Node 20+ (frontend)
-- An Unusual Whales API token in `.env` (see `.env.example`)
-
-## Deploy (frontend + backend together)
-
-One Vercel project via root `vercel.json` services:
-
-- **frontend** (Next.js) — public UI
-- **backend** (Rust Axum container) — internal UW scoring; public only via `/api/*` and `/health` rewrites
-- Binding: `frontend` → `BACKEND_URL` → `backend` (server-side only)
-- Set **`UNUSUAL_WHALES_API_KEY`** in Vercel env (Production/Preview). Never use `NEXT_PUBLIC_*` for the key.
+## Local
 
 ```bash
-npx vercel@latest link
-npx vercel@latest env add UNUSUAL_WHALES_API_KEY
-npx vercel@latest --prod
-# or local multi-service: npx vercel@latest dev
-```
+# backend
+cd backend && cargo run
 
-## Quick start (local)
-
-```bash
-# Backend (http://127.0.0.1:8080)
-cd backend
-cargo run -- --probe SPY   # optional connectivity check
-cargo run
-
-# Frontend (http://127.0.0.1:3000) — separate terminal
+# frontend (separate terminal)
 cd frontend
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8080 npm run dev -- -p 3000
 ```
 
+Copy `.env.example` → `.env` with your key (gitignored).
 
-## What’s live vs sample
+## API (backend)
 
-| Piece | Status |
-|--------|--------|
-| UW GEX, flow, spot, greeks, earnings | Live |
-| Risk scores + drivers | Computed live from UW |
-| Portfolio positions | Sample book (no brokerage sync yet) |
+| Path | Description |
+|------|-------------|
+| `GET /health` | Health + feature list |
+| `GET /api/v1/futures/contracts` | Front-month ES/NQ/RTY/MES/MNQ |
+| `GET /api/v1/futures/{contract}/cvd` | Tape + CVD + POC/VA + Globex/RTH + GEX heatmap |
+| `GET /api/v1/futures/oi-matrix` | OI vs volume regimes |
+| `GET /api/v1/journal/analytics` | Journal KPIs + filters |
+| `POST /api/v1/journal/import` | CSV import + UW flow enrich |
+| `GET /api/v1/options/earnings-iv` | Earnings IV crush |
+| `GET /api/v1/options/sweep-clusters` | 0DTE sweep clusters |
 
-## Notes
+## Pitch
 
-- API auth: `Authorization: Bearer <token>` → `https://api.unusualwhales.com`
-- Keep real keys in `.env` only (gitignored)
+**Futures (Matt / infra):** Rust/Kafka/ClickHouse-ready tape — CVD, blocks, auction levels, and UW GEX on the index proxy, not invented indicators.
+
+**Journal (retention):** TradeZella-style metrics with UW-only flow alignment + dealer GEX on every fill.

@@ -107,6 +107,102 @@ impl GreekExposure {
     }
 }
 
+/// Row from `/greek-exposure/expiry`
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GreekExposureExpiry {
+    pub date: Option<String>,
+    pub expiry: Option<String>,
+    pub dte: Option<i64>,
+    pub call_gex: Option<String>,
+    pub put_gex: Option<String>,
+    pub call_delta: Option<String>,
+    pub put_delta: Option<String>,
+    pub call_charm: Option<String>,
+    pub put_charm: Option<String>,
+    pub call_vanna: Option<String>,
+    pub put_vanna: Option<String>,
+}
+
+impl GreekExposureExpiry {
+    pub fn call_gex_f64(&self) -> f64 {
+        self.call_gex.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+    }
+    pub fn put_gex_f64(&self) -> f64 {
+        self.put_gex.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+    }
+    pub fn net_gex(&self) -> f64 {
+        self.call_gex_f64() + self.put_gex_f64()
+    }
+    pub fn expiry_date(&self) -> String {
+        self.expiry
+            .as_deref()
+            .map(|s| s.chars().take(10).collect())
+            .unwrap_or_default()
+    }
+}
+
+/// Row from `/greek-exposure/strike` (Σ across expiries)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GreekExposureStrike {
+    pub date: Option<String>,
+    pub strike: Option<String>,
+    pub call_gex: Option<String>,
+    pub put_gex: Option<String>,
+    pub call_delta: Option<String>,
+    pub put_delta: Option<String>,
+    pub call_charm: Option<String>,
+    pub put_charm: Option<String>,
+    pub call_vanna: Option<String>,
+    pub put_vanna: Option<String>,
+}
+
+impl GreekExposureStrike {
+    pub fn strike_f64(&self) -> Option<f64> {
+        self.strike.as_ref()?.parse().ok()
+    }
+    pub fn call_gex_f64(&self) -> f64 {
+        self.call_gex.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+    }
+    pub fn put_gex_f64(&self) -> f64 {
+        self.put_gex.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+    }
+    pub fn net_gex(&self) -> f64 {
+        self.call_gex_f64() + self.put_gex_f64()
+    }
+}
+
+/// Row from `/greek-exposure/strike-expiry`
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GreekExposureStrikeExpiry {
+    pub date: Option<String>,
+    pub expiry: Option<String>,
+    pub strike: Option<String>,
+    pub dte: Option<i64>,
+    pub call_gex: Option<String>,
+    pub put_gex: Option<String>,
+    pub call_delta: Option<String>,
+    pub put_delta: Option<String>,
+    pub call_charm: Option<String>,
+    pub put_charm: Option<String>,
+    pub call_vanna: Option<String>,
+    pub put_vanna: Option<String>,
+}
+
+impl GreekExposureStrikeExpiry {
+    pub fn strike_f64(&self) -> Option<f64> {
+        self.strike.as_ref()?.parse().ok()
+    }
+    pub fn call_gex_f64(&self) -> f64 {
+        self.call_gex.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+    }
+    pub fn put_gex_f64(&self) -> f64 {
+        self.put_gex.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+    }
+    pub fn net_gex(&self) -> f64 {
+        self.call_gex_f64() + self.put_gex_f64()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Flow alerts — GET /api/stock/{ticker}/flow-alerts
 //              — GET /api/option-trades/flow-alerts
@@ -141,6 +237,9 @@ pub struct FlowAlert {
     pub vega: Option<f64>,
     pub iv: Option<f64>,
     pub created_at: Option<String>,
+    pub next_earnings_date: Option<String>,
+    pub trade_count: Option<i64>,
+    pub sector: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -294,4 +393,89 @@ impl OptionContractTape {
 #[derive(Debug, Clone, Deserialize)]
 pub struct OptionContractHistoric {
     pub chains: Option<Vec<OptionContractTape>>,
+}
+
+// ---------------------------------------------------------------------------
+// Futures — /api/futures/*
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FuturesContract {
+    pub name: String,
+    pub product: Option<String>,
+    pub expiry: Option<String>,
+    pub security_id: Option<i64>,
+    pub tick_size: Option<String>,
+    pub tick_value: Option<String>,
+    pub multiplier: Option<String>,
+    pub volume: Option<i64>,
+    pub trades: Option<i64>,
+    pub high: Option<String>,
+    pub low: Option<String>,
+    pub last_trade: Option<String>,
+    pub is_spread: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FuturesTrade {
+    pub trade_id: Option<i64>,
+    pub executed_at: String,
+    pub side: String,
+    pub size: i64,
+    pub price: String,
+    pub price_display: Option<String>,
+    pub nbbo_bid: Option<String>,
+    pub nbbo_ask: Option<String>,
+    pub is_block: Option<bool>,
+    pub is_spread: Option<bool>,
+    pub tick_size: Option<String>,
+}
+
+impl FuturesTrade {
+    pub fn price_f64(&self) -> Option<f64> {
+        self.price.parse().ok()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FuturesStats {
+    pub open_interest: Option<i64>,
+    pub session_high: Option<String>,
+    pub session_low: Option<String>,
+    pub session_volume: Option<i64>,
+    pub settlement: Option<String>,
+    pub settlement_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FuturesCandle {
+    pub o: Option<String>,
+    pub h: Option<String>,
+    pub l: Option<String>,
+    pub c: Option<String>,
+    pub v: Option<i64>,
+    pub vol: Option<i64>,
+    pub tv: Option<i64>,
+    pub start: Option<String>,
+    pub end: Option<String>,
+    pub date: Option<String>,
+    pub market: Option<String>,
+}
+
+impl FuturesCandle {
+    pub fn close_f64(&self) -> Option<f64> {
+        self.c.as_ref()?.parse().ok()
+    }
+    pub fn high_f64(&self) -> Option<f64> {
+        self.h.as_ref()?.parse().ok()
+    }
+    pub fn low_f64(&self) -> Option<f64> {
+        self.l.as_ref()?.parse().ok()
+    }
+    pub fn open_f64(&self) -> Option<f64> {
+        self.o.as_ref()?.parse().ok()
+    }
+    pub fn volume(&self) -> i64 {
+        self.vol.or(self.v).or(self.tv).unwrap_or(0)
+    }
 }

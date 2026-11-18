@@ -15,8 +15,8 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Risk Watcher",
-  description: "Autonomous position-aware options risk monitoring",
+  title: "Futures Tape · CVD",
+  description: "Live futures tape & cumulative volume delta — ES/NQ order flow",
 };
 
 export const viewport = {
